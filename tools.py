@@ -1,4 +1,10 @@
+"""Basic file and command tools for the Automaton agent."""
+
+import shlex
+import subprocess
+
 from langchain_core.tools import tool
+
 
 @tool
 def read_file(path: str) -> str:
@@ -6,8 +12,9 @@ def read_file(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
-        return f"Error reading {path}: {str(e)}"
+    except OSError as error:
+        return f"Error reading {path}: {error}"
+
 
 @tool
 def write_file(path: str, content: str) -> str:
@@ -16,15 +23,21 @@ def write_file(path: str, content: str) -> str:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return f"Successfully wrote to {path}"
-    except Exception as e:
-        return f"Error writing to {path}: {str(e)}"
+    except OSError as error:
+        return f"Error writing to {path}: {error}"
+
 
 @tool
 def run_command(command: str) -> str:
     """Run a shell command safely."""
-    import subprocess
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            shlex.split(command),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
         return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    except Exception as e:
-        return f"Command failed: {str(e)}"
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return f"Command failed: {error}"

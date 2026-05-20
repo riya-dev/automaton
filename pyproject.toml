@@ -1,0 +1,7 @@
+[project]
+name = "automaton"
+version = "0.1.0"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+]
