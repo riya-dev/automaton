@@ -12,95 +12,93 @@ Given a high-level task or a repo with failing tests, Automaton:
 6. Scores the final solution with an LLM judge
 7. Returns a full trajectory report with cost + latency metrics
 
+**MVP goal**: fix a real failing pytest repo end-to-end before adding any polish.
+
 ---
 
-## Architecture
-
-### Directory Structure
+## Directory Structure
 
 ```
 automaton/
-├── src/
-│   └── automaton/
-│       ├── __init__.py
-│       ├── graph.py              # Main LangGraph graph
-│       ├── state.py              # AgentState + all Pydantic models
-│       ├── nodes/
-│       │   ├── __init__.py
-│       │   ├── context_builder.py  # Pre-planner: scans repo, builds file tree
-│       │   ├── planner.py
-│       │   ├── coder.py
-│       │   ├── executor.py
-│       │   ├── critic.py
-│       │   └── evaluator.py
-│       ├── tools/
-│       │   ├── __init__.py
-│       │   ├── filesystem.py     # read_file, write_file, list_dir, apply_diff, search_code
-│       │   └── execution.py      # run_command with safety layer
-│       ├── models/
-│       │   ├── __init__.py
-│       │   └── gemini.py         # Model tiering: Flash vs Pro routing
-│       └── observability/
-│           ├── __init__.py
-│           └── tracking.py       # Cost + latency per node
+├── agent.py              # Graph definition + entry point (run from here)
+├── state.py              # AgentState + Pydantic models as they are introduced
+├── nodes.py              # Node functions (planner, coder, executor, critic; evaluator on Day 4)
+├── tools.py              # read_file, write_file, list_dir, run_command
+├── eval_harness.py       # Benchmark runner + LLM-as-judge scoring
 ├── benchmarks/
-│   ├── tasks/                    # 10–20 broken repos with failing tests
-│   └── run_benchmark.py
+│   └── tasks/            # Each task: broken repo with failing pytest suite
 ├── demo/
-│   └── app.py                    # Streamlit UI
-├── tests/
+│   └── app.py            # Streamlit UI (Day 5)
 ├── pyproject.toml
 ├── .env.example
 └── README.md
 ```
 
-The existing `graph.py` and `tools.py` will be refactored into this structure on Day 1.
+Start flat. Refactor into subpackages only if a single file becomes unmanageable.
 
 ---
 
-### State Design
+## State Design
+
+Start with the smallest state that can prove the graph runs. Add fields only when a node actually needs them.
+
+**Day 1 minimum:**
+
+```python
+class AgentState(TypedDict):
+    task: str
+    next: str | None
+    iteration: int
+    max_iterations: int
+```
+
+**Day 2 loop state:**
 
 ```python
 class AgentState(TypedDict):
     # Core
-    task: str                          # Original user task
+    task: str
     messages: Annotated[List, operator.add]
+    working_dir: str                   # Locked sandbox path
 
-    # Context
-    file_tree: str                     # Snapshot of repo structure
-    code_context: dict[str, str]       # {filepath: content} for relevant files
+    # Context (populated by Planner before generating a plan)
+    file_tree: str                     # Output of list_dir
+    code_context: str                  # Concatenated content of relevant files (flat string for MVP)
 
     # Plan
-    plan: Plan | None                  # Structured plan (see models below)
-    current_step_index: int
+    plan: Plan | None
 
     # Execution
-    last_edit: CodeEdit | None         # What the coder last changed
-    test_result: TestResult | None     # Structured test output (pass/fail per test)
+    last_edit: CodeEdit | None
+    test_result: TestResult | None
     last_error: str | None
 
     # Critique
-    critique: CritiqueResult | None    # Critic's verdict + confidence score
+    critique: CritiqueResult | None
 
     # Control
     iteration: int
-    max_iterations: int                # Default 8
+    max_iterations: int                # Default 6
     status: Literal["running", "passed", "failed", "max_iter_reached"]
 
-    # Observability
-    trajectory: list[TrajectoryStep]   # Full action history for the report
-    total_cost_usd: float
-    total_latency_ms: float
+    # Add on Day 4:
+    # trajectory: list[TrajectoryStep]
+    # eval_result: EvalResult | None
+    # total_cost_usd: float
+    # total_latency_ms: float
 ```
 
-### Pydantic Models (Instructor + structured outputs)
+## Pydantic Models
+
+Keep these lean for MVP. On Day 1, no Pydantic models are required; stubs can return plain strings or fixed routing values.
+
+**Day 2 models:**
 
 ```python
 class PlanStep(BaseModel):
     step_id: int
-    action: Literal["read", "write", "test", "analyze", "search"]
-    target_file: str | None
     description: str
+    target_file: str | None
 
 class Plan(BaseModel):
     goal_summary: str
@@ -108,221 +106,225 @@ class Plan(BaseModel):
 
 class CodeEdit(BaseModel):
     file_path: str
-    edit_type: Literal["create", "modify", "delete"]
-    content: str                       # Full content for create; unified diff for modify
+    content: str                       # Full file content (no diffs for MVP)
 
 class TestResult(BaseModel):
     passed: bool
-    total_tests: int
     passed_count: int
     failed_count: int
-    failures: list[TestFailure]        # {test_name, error_message, traceback}
+    failure_summary: str               # Raw truncated pytest output
     raw_output: str
+```
+
+**Day 3 model:**
+
+```python
 
 class CritiqueResult(BaseModel):
     summary: str
     issues: list[str]
     confidence: float                  # 0.0–1.0
     verdict: Literal["continue", "replan", "done", "give_up"]
+```
+
+**Day 4 models:**
+
+```python
+class TrajectoryStep(BaseModel):
+    node: str
+    summary: str
+    latency_ms: float | None = None
+    tokens: int | None = None
 
 class EvalResult(BaseModel):
     correctness: float                 # 0–10
     code_quality: float                # 0–10
-    efficiency: float                  # 0–10
-    trajectory_efficiency: float       # iterations used / max_iterations (lower is better)
+    trajectory_efficiency: float       # iterations used / max_iterations
     notes: str
 ```
 
+`apply_diff` is a post-MVP optimization. Full rewrites are fine for the benchmark task sizes.
+
 ---
 
-### Graph (Nodes + Edges)
+## Graph
+
+Target graph by Day 4. On Day 1, use a simple linear stub graph; on Day 3, `done` / `give_up` can route directly to `END` until the evaluator is added.
 
 ```
 START
-  └─► context_builder          # Scans repo, populates file_tree + code_context
-        └─► planner            # Gemini Pro → structured Plan
-              └─► coder        # Gemini Flash → CodeEdit (diff or full file)
-                    └─► executor  # Run tests, parse output → TestResult
-                          └─► critic  # Gemini Pro → CritiqueResult
-                                └─► [conditional routing]
-                                      ├─ "continue"  → coder
-                                      ├─ "replan"    → planner  (critic says plan is wrong)
-                                      ├─ "done"      → evaluator
-                                      └─ "give_up"   → evaluator
-                                            └─► END
+  └─► planner        # Gemini Pro → Plan (reads file_tree + code_context)
+        └─► coder    # Gemini Flash → CodeEdit
+              └─► executor   # run_command pytest → TestResult
+                    └─► critic   # Gemini Pro → CritiqueResult
+                          └─► [critic_router]
+                                ├─ "continue"  → coder
+                                ├─ "replan"    → planner   ← key edge
+                                ├─ "done"      → evaluator
+                                └─ "give_up"   → evaluator
+                                      └─► END
 ```
 
-**Routing logic in `critic_router`:**
-- `verdict == "done"` or `test_result.passed` → evaluator
+**`critic_router` logic:**
+- `test_result.passed` or `verdict == "done"` → evaluator
 - `verdict == "continue"` and `iteration < max_iterations` → coder
-- `verdict == "replan"` → planner (passes critique + failure context)
-- `verdict == "give_up"` or `iteration >= max_iterations` → evaluator (with failure status)
+- `verdict == "replan"` → planner (critique + error context injected into state)
+- `verdict == "give_up"` or `iteration >= max_iterations` → evaluator (failure status)
 
-The key addition over the original spec is the **"replan" edge** back to Planner. Sometimes the fix isn't "write better code" — the plan itself is wrong. The Critic can signal this explicitly.
-
----
-
-### Model Tiering
-
-| Node           | Model         | Reason                                      |
-|----------------|---------------|---------------------------------------------|
-| context_builder | Flash        | Fast file scanning, no deep reasoning needed |
-| planner        | Pro           | Complex task decomposition                  |
-| coder          | Flash         | Fast iteration; most expensive in loop count|
-| executor       | (no LLM)      | Pure subprocess + output parsing            |
-| critic         | Pro           | Nuanced judgment, confidence scoring        |
-| evaluator      | Pro           | Final LLM-as-judge scoring                  |
+The **replan edge** is the critical design choice. When the fix requires rethinking the approach — not just rewriting the code — routing back to Planner avoids wasted iterations. Context builder is folded into the Planner node for MVP (it reads the file tree itself before generating a plan).
 
 ---
 
-### Tools
+## Model Tiering
 
-**Filesystem (`tools/filesystem.py`):**
-- `read_file(path)` — exists, keep
-- `write_file(path, content)` — exists, add path validation (no `..` traversal)
-- `list_directory(path, depth=2)` — returns annotated file tree
-- `apply_diff(path, unified_diff)` — applies a unified diff rather than full rewrite; more token-efficient for edits
-- `search_code(pattern, directory)` — grep-style symbol/string search
-
-**Execution (`tools/execution.py`):**
-- `run_command(command, working_dir, timeout=60)` — the current version is unsafe
-- Add allowlist: `pytest`, `python`, `npm test`, `cargo test`, `go test`, `make test`
-- Add blocklist check: `rm -rf`, `sudo`, `curl`, `wget`, `ssh`
-- Lock working directory: commands can't escape the sandbox path
-- Parse output into `TestResult` (detect pytest, jest, cargo test formats)
+| Node      | Model        | Reason                                          |
+|-----------|--------------|-------------------------------------------------|
+| planner   | Gemini Pro   | Complex task decomposition, needs deep reasoning |
+| coder     | Gemini Flash | Fast iteration; runs every loop, cost-sensitive  |
+| critic    | Gemini Pro   | Nuanced judgment, confidence scoring             |
+| evaluator | Gemini Pro   | Final LLM-as-judge; quality over speed           |
+| executor  | (no LLM)     | Pure subprocess + regex parsing                  |
 
 ---
 
-### Observability
+## Tools (`tools.py`)
 
-- **LangSmith**: wrap every node with `@traceable`; set `LANGCHAIN_TRACING_V2=true`
-- **Cost tracking**: after each LLM call, extract `usage_metadata` and accumulate into `state.total_cost_usd`
-- **Trajectory**: each node appends a `TrajectoryStep(node, action_summary, tokens, latency_ms)` to `state.trajectory`
-- **Final report**: Evaluator node generates a JSON report with trajectory + eval scores
+All tools in one file for MVP. Keep them simple and defensive.
+
+- `read_file(path)` — reads a file relative to working_dir
+- `write_file(path, content)` — writes full file content; validates no `..` path traversal
+- `list_dir(path, depth=2)` — annotated file tree string
+- `run_command(command, working_dir, timeout=60)` — subprocess with:
+  - Allowlist: `pytest`, `python`, `python3`, `npm test`, `make test`
+  - Blocklist: `rm`, `sudo`, `curl`, `wget`, `ssh`, `git push`
+  - Working directory locked to sandbox path
+  - Returns stdout + stderr as string (Executor parses into TestResult)
+
+No `apply_diff` or `search_code` for MVP. Add after the loop is working end-to-end.
+
+---
+
+## Observability
+
+- **Day 1–3**: rely on simple prints and optional plain-list trajectory notes while the loop is still taking shape
+- **Day 4**: introduce `TrajectoryStep`, benchmark results JSON, and the evaluator report
+- **LangSmith**: set `LANGCHAIN_TRACING_V2=true`; add `with langsmith.trace(...)` around graph invoke
+- **Day 5 stretch**: accumulate `total_cost_usd` in state after each LLM call using `response.usage_metadata`
 
 ---
 
 ## Day-by-Day Roadmap
 
-### Day 1 — Structure, State, and Skeleton
+### Day 1 — Flat Structure + Stub Graph That Runs
 
-**Goal**: A runnable graph with proper structure, models defined, and real Gemini calls in at least one node.
+**Goal**: A graph that executes end-to-end with stub nodes. No LLM calls yet. Prove the wiring works.
 
-Tasks:
-1. Refactor `graph.py` and `tools.py` into the `src/automaton/` package structure
-2. Write `pyproject.toml` with all deps (`langgraph`, `langchain-google-genai`, `instructor`, `pydantic>=2`, `langsmith`, `docker`, `streamlit`)
-3. Define all Pydantic models in `state.py` (Plan, CodeEdit, TestResult, CritiqueResult, EvalResult, AgentState)
-4. Implement `context_builder` node (real: `list_directory` + selective `read_file`)
-5. Implement `planner` node with Gemini Pro + Instructor structured output → `Plan`
-6. Keep `coder`, `executor`, `critic` as stubs that print + pass state through
-7. Wire the full graph with all conditional edges (including the replan edge)
-8. Verify the graph compiles and the planner produces a real `Plan` object
+1. Create the flat files: `agent.py`, `state.py`, `nodes.py`
+2. Define the minimal Day 1 `AgentState`: `task`, `next`, `iteration`, `max_iterations`
+3. Stub all nodes in `nodes.py` — each prints its name and returns a small state update
+4. Wire the graph in `agent.py` with simple linear edges: planner → coder → executor → critic → END
+5. Run `python agent.py` and confirm it traverses all nodes without error
 
-Deliverables: `src/automaton/` package, `state.py`, `graph.py` with real planner, `pyproject.toml`
+**Deliverables**: runnable graph, stub nodes, minimal `AgentState`
 
 ---
 
-### Day 2 — Safe Execution + Coder Node
+### Day 2 — Working End-to-End Loop (crude is fine)
 
-**Goal**: The agent can actually write code and run tests safely.
+**Goal**: Agent makes real LLM calls, writes a file, runs pytest, and loops. Even if it's clunky, the loop closes.
 
-Tasks:
-1. Implement `tools/execution.py` with the safety layer (allowlist, blocklist, working dir lock, timeout)
-2. Implement `tools/filesystem.py` with `list_directory`, `apply_diff`, `search_code` (+ harden existing tools)
-3. Implement the `coder` node with Gemini Flash + Instructor → `CodeEdit`
-   - For new files: emit full content
-   - For edits: emit unified diff (apply with `apply_diff` tool)
-4. Implement the `executor` node: call `run_command`, parse output into `TestResult`
-   - Support pytest output format first; jest + cargo as stretch
-5. Create `benchmarks/tasks/task_001/` — a simple broken Python repo with 3 failing tests
-6. Run the graph end-to-end (planner → coder → executor) and verify it writes a file + runs tests
+1. Implement real `planner` node: Gemini Pro + Instructor → `Plan`; reads `file_tree` in-node with `list_dir`
+2. Implement real `coder` node: Gemini Flash + Instructor → `CodeEdit`; writes file with `write_file`
+3. Implement `executor` node: calls `run_command("pytest --tb=short")`, parses exit code + stdout into `TestResult`
+4. Define only the Day 2 Pydantic models: `Plan`, `PlanStep`, `CodeEdit`, `TestResult`
+5. Implement `tools.py`: `list_dir`, hardened `read_file` / `write_file`, basic `run_command` with allowlist + blocklist
+6. Write `pyproject.toml` with the dependencies needed for the loop
+7. Create `benchmarks/tasks/task_001/`: **extremely simple** — one Python file with a single off-by-one bug, one failing test
+8. Run planner → coder → executor with `max_iterations=2`; verify tests go from failing → passing
 
-Deliverables: safe `run_command`, full tool suite, working coder + executor nodes, first benchmark task
+The first task should be trivially fixable so you can confirm the loop works before adding complexity.
 
----
-
-### Day 3 — Critic + Self-Critique Loop
-
-**Goal**: The agent can critique its own output and decide whether to loop, replan, or stop.
-
-Tasks:
-1. Implement `critic` node with Gemini Pro + Instructor → `CritiqueResult`
-   - Input: test_result, last_edit, code_context, iteration count
-   - Output: summary, issues list, confidence (0–1), verdict (continue/replan/done/give_up)
-2. Implement `critic_router` conditional edge with all four paths
-3. Add the `replan` path: Critic can send back to Planner with failure context injected into state
-4. Implement `evaluator` node: final LLM-as-judge scoring → `EvalResult`
-5. Add 5 more benchmark tasks (varying difficulty: fix a bug, add a feature, refactor)
-6. Run 3 tasks end-to-end with the full loop; manually verify the routing works
-
-Deliverables: critic node, all routing, evaluator node, 6 benchmark tasks total
+**Deliverables**: real planner + coder + executor, minimal models, tools with basic safety layer, first benchmark task (1 bug, 1 test), closed loop confirmed
 
 ---
 
-### Day 4 — Observability + Benchmark Harness
+### Day 3 — Critic + Replan
 
-**Goal**: Full cost/latency visibility and a benchmark suite that can run automatically.
+**Goal**: The full self-critique loop is live. Agent can replan when stuck.
 
-Tasks:
-1. Wire LangSmith tracing (`LANGCHAIN_TRACING_V2`, `@traceable` on all nodes)
-2. Implement `observability/tracking.py`: per-node token counts, latency, cost accumulation into state
-3. Implement `benchmarks/run_benchmark.py`:
-   - Loops over all tasks in `benchmarks/tasks/`
-   - Runs the graph on each
-   - Collects: success (bool), iterations used, total cost, total latency, eval scores
-   - Outputs a JSON results file + prints a markdown table
-4. Add 10+ more benchmark tasks to reach 15–20 total
-5. Run the full benchmark suite; capture baseline metrics
+1. Implement `critic` node: Gemini Pro + Instructor → `CritiqueResult` (summary, issues, confidence, verdict)
+2. Implement `critic_router` with all four paths
+3. Test the replan edge explicitly: craft a task where the initial plan is wrong and verify it reroutes
+4. Add lightweight trajectory logging as plain dicts or strings if useful for debugging; do not build the full `TrajectoryStep` model yet
+5. Add 4 more benchmark tasks (vary: off-by-one bug, missing import, wrong return type, logic error)
 
-Deliverables: LangSmith integration, cost tracking, benchmark runner, 15–20 tasks, baseline metrics table
+**Deliverables**: full critique loop, replan edge tested, 5 benchmark tasks total
 
 ---
 
-### Day 5 — UI, Polish, and README
+### Day 4 — Benchmark Harness
 
-**Goal**: A demo-ready agent with a clean UI and excellent documentation.
+**Goal**: Automated runner that scores the agent across multiple tasks. Observability is basic (success + iterations).
 
-Tasks:
-1. Build `demo/app.py` with Streamlit:
-   - Left panel: task input + run button
-   - Center: live node execution feed (streaming graph events)
-   - Right panel: trajectory viewer + final eval scores
-   - Bottom: cost + latency breakdown per node
-2. Add trajectory report generation: after evaluator, write a JSON + Markdown report to disk
-3. Write the full README:
-   - Architecture diagram (Mermaid)
-   - Setup instructions
+1. Build `eval_harness.py`:
+   - Loops over `benchmarks/tasks/`
+   - Runs agent on each; collects: success (bool), iterations used, duration, final status
+   - Prints markdown results table + writes `benchmark_results.json`
+2. Add `TrajectoryStep` and append one record per node with node name, summary, and optional latency
+3. Implement `evaluator` node: LLM-as-judge → `EvalResult`; writes `trajectory_report.json`
+4. Add 5–10 more tasks to reach 10–15 total (vary bugs: wrong return value, missing function, logic error, import error)
+5. Run full benchmark; capture baseline metrics for README
+6. Wire LangSmith tracing (set `LANGCHAIN_TRACING_V2=true`, wrap graph invoke — minimal effort, high observability value)
+
+**Deliverables**: benchmark runner, `TrajectoryStep`, `EvalResult`, evaluator node, 10–15 tasks, baseline metrics table, LangSmith tracing wired
+
+---
+
+### Day 5 — Demo + README + Stretch Observability
+
+**Goal**: Demo-ready. Anyone can clone, run, and understand the results.
+
+1. Write the full README:
+   - Mermaid architecture diagram
+   - Setup + usage instructions
    - Metrics table from benchmark run
-   - Example trajectory (input → plan → edits → test result → eval score)
-4. Clean up: remove debug prints, add `.env.example`, ensure `pyproject.toml` has all deps pinned
+   - Example trajectory (input → plan → edits → test result → eval)
+2. Build `demo/app.py` (Streamlit) — keep it simple:
+   - Task input + run button
+   - Live node execution feed (stream graph events)
+   - Final eval score display
+3. Add `.env.example`, clean up debug prints, pin deps in `pyproject.toml`
 
-Deliverables: Streamlit demo, trajectory reports, complete README with metrics
+**Stretch (only if Days 1–4 finished cleanly):**
+- Add `total_cost_usd: float` and token counts to `AgentState`
+- Accumulate cost per LLM call using `response.usage_metadata`
+- Show cost + latency breakdown in the Streamlit UI
+
+**Deliverables**: complete README with metrics, Streamlit demo
 
 ---
 
-## Deviations from Original Plan (and Why)
+### Day 6 — Polish (if time allows)
 
-| Original | Change | Reason |
-|---|---|---|
-| Coder always loops back | Add "replan" edge from Critic → Planner | Sometimes the plan is wrong, not the code; routing back to coder is wasted iterations |
-| run_command as-is | Add allowlist + blocklist + working dir lock | Current version can execute arbitrary shell; a safety layer is required even for local dev |
-| Full file rewrites | Unified diffs for modifications | Diffs are 3–5x cheaper in tokens and less destructive; full rewrites on large files lose context |
-| context_builder implicit | Explicit node before Planner | Planner needs file tree + relevant file contents before it can plan; separating this makes it testable |
-| LangSmith only | LangSmith + per-state cost accumulation | LangSmith traces are great for debugging but don't give you a final cost summary in the state; need both |
-| Docker on Day 2 | Docker as stretch goal, subprocess with safety first | Docker adds significant setup complexity; a hardened subprocess layer covers 90% of the safety need for Day 1–2 |
+- `apply_diff` tool for token-efficient edits on larger files
+- `search_code` tool (grep-style) for symbol lookup
+- Full trajectory report as JSON + Markdown
+- Docker sandbox for full isolation
+- Multi-framework test parsing (jest, cargo test)
+- Long-term vector store memory (ChromaDB) for cross-session context
 
 ---
 
 ## Success Criteria
 
-| Metric | Target |
-|---|---|
-| Benchmark success rate | ≥ 70% of tasks passing all tests |
-| Average iterations to success | ≤ 4 |
-| p50 latency per task | ≤ 45s |
-| p95 latency per task | ≤ 120s |
-| Average cost per task | ≤ $0.05 |
-| Trajectory efficiency | ≥ 0.6 (iterations used / max) |
+| Metric                   | Target                                    |
+|--------------------------|-------------------------------------------|
+| Benchmark success rate   | ≥ 70% of tasks passing all tests          |
+| Average iterations       | ≤ 4 per successful task                   |
+| p50 latency per task     | ≤ 45s                                     |
+| p95 latency per task     | ≤ 120s                                    |
+| Average cost per task    | ≤ $0.05                                   |
+| Trajectory efficiency    | ≥ 0.6 (iterations used / max\_iterations) |
 
 ---
 
@@ -338,18 +340,10 @@ dependencies = [
     "pydantic>=2.7",
     "langsmith>=0.1",
     "python-dotenv>=1.0",
-    "docker>=7.0",          # stretch: Day 2+
     "streamlit>=1.35",
-    "pytest>=8.0",          # for benchmark tasks
-    "rich>=13.0",           # CLI output formatting
+    "pytest>=8.0",
+    "rich>=13.0",
 ]
+# Day 6 stretch:
+# "docker>=7.0"
 ```
-
----
-
-## Open Questions / Decisions Deferred
-
-- **Docker vs subprocess**: Start with subprocess + safety layer. Add Docker containerization in a follow-up if benchmark tasks need it (e.g., tasks that install packages).
-- **Long-term memory**: MemorySaver covers the session. A vector store (ChromaDB/Qdrant) for cross-session memory is a stretch goal after Day 5.
-- **Multi-language support**: Benchmark tasks will be Python-only initially. Jest/cargo test parsing can be added incrementally.
-- **Parallelism**: Planner could dispatch independent subtasks to parallel Coder instances. Deferred — sequential is simpler and easier to debug first.
