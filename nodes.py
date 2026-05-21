@@ -4,7 +4,7 @@ import os
 import re
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from state import AgentState, CodeEdit, Plan, TestResult
+from state import AgentState, CodeEdit, CritiqueResult, Plan, TestResult
 from tools import list_dir, read_file, run_command, write_file
 
 
@@ -12,6 +12,7 @@ CONTEXT_FILE_SUFFIXES = {".py", ".toml", ".md"}
 MAX_CONTEXT_FILES = 8
 PLANNER_MODEL = os.getenv("AUTOMATON_PLANNER_MODEL", "gemini-2.5-flash-lite")
 CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash-lite")
+CRITIC_MODEL = os.getenv("AUTOMATON_CRITIC_MODEL", "gemini-2.5-flash-lite")
 
 
 def _google_llm(model: str):
@@ -75,6 +76,7 @@ def planner(state: AgentState) -> dict[str, object]:
     working_dir = state["working_dir"]
     file_tree = list_dir.invoke({"path": ".", "working_dir": working_dir, "depth": 2})
     code_context = _read_code_context(file_tree, working_dir)
+    critique_context = state.get("critique")
 
     planner_llm = _google_llm(PLANNER_MODEL).with_structured_output(Plan)
 
@@ -82,6 +84,7 @@ def planner(state: AgentState) -> dict[str, object]:
         (
             "Create a concise implementation plan for this coding task.\n\n"
             f"Task:\n{state['task']}\n\n"
+            f"Previous critique, if any:\n{critique_context}\n\n"
             f"File tree:\n{file_tree}\n\n"
             f"Code context:\n{code_context}"
         )
@@ -92,6 +95,7 @@ def planner(state: AgentState) -> dict[str, object]:
         "code_context": code_context,
         "plan": plan,
         "next": "coder",
+        "trajectory": ["planner created plan"],
     }
 
 
@@ -102,12 +106,14 @@ def coder(state: AgentState) -> dict[str, object]:
 
     test_result = state.get("test_result")
     failure_context = test_result.failure_summary if test_result is not None else "No tests run yet."
+    critique_context = state.get("critique")
 
     code_edit = coder_llm.invoke(
         (
             "Return exactly one full-file edit that addresses the task and failing tests.\n\n"
             f"Task:\n{state['task']}\n\n"
             f"Plan:\n{state['plan']}\n\n"
+            f"Critique:\n{critique_context}\n\n"
             f"Code context:\n{state['code_context']}\n\n"
             f"Latest test failure:\n{failure_context}"
         )
@@ -121,12 +127,18 @@ def coder(state: AgentState) -> dict[str, object]:
     )
 
     if write_result.startswith("Error writing"):
-        return {"last_error": write_result, "status": "failed", "next": "executor"}
+        return {
+            "last_error": write_result,
+            "status": "failed",
+            "next": "executor",
+            "trajectory": [f"coder failed to write {code_edit.file_path}: {write_result}"],
+        }
 
     return {
         "last_edit": code_edit,
         "last_error": None,
         "next": "executor",
+        "trajectory": [f"coder edited {code_edit.file_path}"],
     }
 
 
@@ -134,7 +146,10 @@ def executor(state: AgentState) -> dict[str, object]:
     """Run pytest and parse the result."""
     print("-> Executor node")
     if state["status"] == "failed":
-        return {"next": "critic"}
+        return {
+            "next": "critic",
+            "trajectory": ["executor skipped because status=failed"],
+        }
 
     output = run_command.invoke(
         {
@@ -151,29 +166,73 @@ def executor(state: AgentState) -> dict[str, object]:
         "status": status,
         "last_error": None if test_result.passed else test_result.failure_summary,
         "next": "critic",
+        "trajectory": [f"executor passed={test_result.passed} failed={test_result.failed_count}"],
     }
 
 
-def critic(state: AgentState) -> dict[str, int | str]:
-    """Update loop status after a test execution."""
+def critic(state: AgentState) -> dict[str, object]:
+    """Critique the latest attempt and decide the next route."""
     print("-> Critic node")
     iteration = state.get("iteration", 0) + 1
 
+    test_result = state.get("test_result")
+    last_edit = state.get("last_edit")
+
     if state["status"] == "passed":
-        return {"iteration": iteration, "next": "end"}
+        critique = CritiqueResult(
+            summary="Tests passed.",
+            issues=[],
+            confidence=1.0,
+            verdict="done",
+        )
+    elif state["status"] == "failed":
+        critique = CritiqueResult(
+            summary=state.get("last_error") or "The agent hit an unrecoverable error.",
+            issues=[state.get("last_error") or "Unknown failure."],
+            confidence=1.0,
+            verdict="give_up",
+        )
+    elif iteration >= state["max_iterations"]:
+        critique = CritiqueResult(
+            summary="Maximum iterations reached.",
+            issues=["The agent ran out of allowed iterations before passing tests."],
+            confidence=1.0,
+            verdict="give_up",
+        )
+    else:
+        critic_llm = _google_llm(CRITIC_MODEL).with_structured_output(CritiqueResult)
+        critique = critic_llm.invoke(
+            (
+                "Critique the latest coding attempt. Decide whether the agent should "
+                "continue coding from the current plan, replan, finish, or give up.\n\n"
+                "Use verdict='continue' when the plan is still basically right and "
+                "the coder should make another edit.\n"
+                "Use verdict='replan' when the current plan appears wrong, incomplete,"
+                "or aimed at the wrong cause.\n"
+                "Use verdict='done' only when tests passed.\n"
+                "Use verdict='give_up' only for unrecoverable errors or repeated lack of progress.\n\n"
+                f"Task:\n{state['task']}\n\n"
+                f"Plan:\n{state.get('plan')}\n\n"
+                f"Last edit:\n{last_edit}\n\n"
+                f"Test result:\n{test_result}\n\n"
+                f"Failure summary:\n{state.get('last_error')}"
+            )
+        )
 
-    if state["status"] == "failed":
-        return {"iteration": iteration, "next": "end"}
-
-    if iteration >= state["max_iterations"]:
-        return {
-            "iteration": iteration,
-            "status": "max_iter_reached",
-            "next": "end",
-        }
+    status = state["status"]
+    if critique.verdict == "done":
+        status = "passed"
+    elif critique.verdict == "give_up" and iteration >= state["max_iterations"]:
+        status = "max_iter_reached"
+    elif critique.verdict == "give_up":
+        status = "failed"
 
     return {
         "iteration": iteration,
-        "status": "running",
-        "next": "coder",
+        "critique": critique,
+        "status": status,
+        "next": critique.verdict,
+        "trajectory": [
+            f"critic iteration={iteration} verdict={critique.verdict} summary={critique.summary}"
+        ],
     }

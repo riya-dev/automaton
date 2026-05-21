@@ -39,6 +39,14 @@ class TestResult(BaseModel):
     raw_output: str
 
 
+class CritiqueResult(BaseModel):
+    """Structured judgment produced by the critic node."""
+    summary: str
+    issues: list[str]
+    confidence: float
+    verdict: Literal["continue", "replan", "done", "give_up"]
+
+
 class AgentState(TypedDict):
     """State passed between graph nodes."""
 
@@ -55,3 +63,5 @@ class AgentState(TypedDict):
     test_result: TestResult | None
     last_error: str | None
     status: Literal["running", "passed", "failed", "max_iter_reached"]
+    critique: CritiqueResult | None
+    trajectory: Annotated[list[str], operator.add]

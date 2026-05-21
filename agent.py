@@ -13,10 +13,30 @@ from state import AgentState
 
 def critic_router(state: AgentState) -> str:
     """Route to another coding pass unless the run is complete."""
-    if state["status"] in {"passed", "failed", "max_iter_reached"}:
+    critique = state.get("critique")
+
+    if state["status"] == "passed":
         return "end"
 
-    return "coder"
+    if critique is None:
+        return "end"
+
+    if state["iteration"] >= state["max_iterations"]:
+        return "end"
+
+    if critique.verdict == "done":
+        return "end"
+
+    if critique.verdict == "give_up":
+        return "end"
+
+    if critique.verdict == "replan":
+        return "planner"
+
+    if critique.verdict == "continue":
+        return "coder"
+
+    return "end"
 
 
 graph_builder = StateGraph(AgentState)
@@ -33,6 +53,7 @@ graph_builder.add_conditional_edges(
     "critic",
     critic_router,
     {
+        "planner": "planner",
         "coder": "coder",
         "end": END,
     },
@@ -58,6 +79,8 @@ if __name__ == "__main__":
             "test_result": None,
             "last_error": None,
             "status": "running",
+            "critique": None,
+            "trajectory": [],
         }
     )
     print("Graph completed!")
