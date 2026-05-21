@@ -1,7 +1,7 @@
 # automaton
 Autonomous swe agents
 
-## Day 1
+## Run
 Run the stub graph:
 
 ```bash

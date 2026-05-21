@@ -1,4 +1,4 @@
-"""Stub node implementations for the Day 1 graph."""
+"""Node implementations for the Automaton graph."""
 
 from state import AgentState
 

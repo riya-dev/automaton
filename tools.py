@@ -41,3 +41,13 @@ def run_command(command: str) -> str:
         return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         return f"Command failed: {error}"
+
+@tool
+def list_dir(path: str, depth: int = 2) -> str:
+    """List the contents of a directory."""
+    try:
+        with os.scandir(path) as it:
+            return "\n".join(f"{entry.name} ({'dir' if entry.is_dir() else 'file'})" for entry in it)
+    except OSError as error:
+        return f"Error listing {path}: {error}"
+    

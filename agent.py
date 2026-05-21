@@ -1,4 +1,4 @@
-"""Day 1 entry point for the Automaton stub graph."""
+"""Entry point for the Automaton graph."""
 
 from langgraph.graph import END, START, StateGraph
 
