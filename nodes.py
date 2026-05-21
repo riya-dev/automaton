@@ -2,9 +2,9 @@
 
 import re
 
+from langchain_google_genai import ChatGoogleGenerativeAI
 from state import AgentState, CodeEdit, Plan, TestResult
 from tools import list_dir, read_file, run_command, write_file
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 CONTEXT_FILE_SUFFIXES = {".py", ".toml", ".md"}
@@ -149,7 +149,25 @@ def executor(state: AgentState) -> dict[str, object]:
 
 
 def critic(state: AgentState) -> dict[str, int | str]:
-    """Stub critic node."""
+    """Update loop status after a test execution."""
     print("-> Critic node")
     iteration = state.get("iteration", 0) + 1
-    return {"iteration": iteration, "next": "end"}
+
+    if state["status"] == "passed":
+        return {"iteration": iteration, "next": "end"}
+
+    if state["status"] == "failed":
+        return {"iteration": iteration, "next": "end"}
+
+    if iteration >= state["max_iterations"]:
+        return {
+            "iteration": iteration,
+            "status": "max_iter_reached",
+            "next": "end",
+        }
+
+    return {
+        "iteration": iteration,
+        "status": "running",
+        "next": "coder",
+    }
