@@ -1,5 +1,6 @@
 """Node implementations for the Automaton graph."""
 
+import os
 import re
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,6 +10,8 @@ from tools import list_dir, read_file, run_command, write_file
 
 CONTEXT_FILE_SUFFIXES = {".py", ".toml", ".md"}
 MAX_CONTEXT_FILES = 8
+PLANNER_MODEL = os.getenv("AUTOMATON_PLANNER_MODEL", "gemini-2.5-flash-lite")
+CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash-lite")
 
 
 def _google_llm(model: str):
@@ -73,7 +76,7 @@ def planner(state: AgentState) -> dict[str, object]:
     file_tree = list_dir.invoke({"path": ".", "working_dir": working_dir, "depth": 2})
     code_context = _read_code_context(file_tree, working_dir)
 
-    planner_llm = _google_llm("gemini-2.5-pro").with_structured_output(Plan)
+    planner_llm = _google_llm(PLANNER_MODEL).with_structured_output(Plan)
 
     plan = planner_llm.invoke(
         (
@@ -95,7 +98,7 @@ def planner(state: AgentState) -> dict[str, object]:
 def coder(state: AgentState) -> dict[str, object]:
     """Produce and apply a structured full-file code edit."""
     print("-> Coder node")
-    coder_llm = _google_llm("gemini-2.5-flash").with_structured_output(CodeEdit)
+    coder_llm = _google_llm(CODER_MODEL).with_structured_output(CodeEdit)
 
     test_result = state.get("test_result")
     failure_context = test_result.failure_summary if test_result is not None else "No tests run yet."
@@ -130,6 +133,9 @@ def coder(state: AgentState) -> dict[str, object]:
 def executor(state: AgentState) -> dict[str, object]:
     """Run pytest and parse the result."""
     print("-> Executor node")
+    if state["status"] == "failed":
+        return {"next": "critic"}
+
     output = run_command.invoke(
         {
             "command": "pytest --tb=short",

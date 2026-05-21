@@ -3,6 +3,7 @@
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 
 from langchain_core.tools import tool
 
@@ -36,7 +37,7 @@ def _is_allowed_command(parts: list[str]) -> bool:
         return True
 
     if parts[0] in {"python", "python3"}:
-        return len(parts) > 1
+        return len(parts) > 2 and parts[1:3] == ["-m", "pytest"]
 
     if parts == ["npm", "test"]:
         return True
@@ -45,6 +46,20 @@ def _is_allowed_command(parts: list[str]) -> bool:
         return True
 
     return False
+
+
+def _subprocess_parts(parts: list[str]) -> list[str]:
+    if parts and parts[0] == "pytest":
+        # Importing readline during pytest startup segfaults in this local macOS venv.
+        pytest_runner = (
+            "import sys, types; "
+            "sys.modules['readline'] = types.ModuleType('readline'); "
+            "import pytest; "
+            "raise SystemExit(pytest.main(sys.argv[1:]))"
+        )
+        return [sys.executable, "-c", pytest_runner, *parts[1:]]
+
+    return parts
 
 
 @tool
@@ -80,7 +95,7 @@ def run_command(command: str, working_dir: str, timeout: int = 60) -> str:
             return f"Command not allowed: {command}"
 
         result = subprocess.run(
-            parts,
+            _subprocess_parts(parts),
             capture_output=True,
             text=True,
             timeout=timeout,

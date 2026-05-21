@@ -1,6 +1,11 @@
 """Entry point for the Automaton graph."""
 
+from pathlib import Path
+
+from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
+
+load_dotenv()
 
 from nodes import planner, coder, executor, critic
 from state import AgentState
@@ -37,14 +42,15 @@ graph = graph_builder.compile()
 
 
 if __name__ == "__main__":
+    benchmark_dir = Path("benchmarks/tasks/task_001")
     result = graph.invoke(
         {
-            "task": "Create a simple Flask hello world app",
+            "task": "Fix next_number so it returns the integer after the input value.",
             "next": None,
             "iteration": 0,
-            "max_iterations": 1,
+            "max_iterations": 2,
             "messages": [],
-            "working_dir": ".",
+            "working_dir": str(benchmark_dir),
             "file_tree": "",
             "code_context": "",
             "plan": None,
