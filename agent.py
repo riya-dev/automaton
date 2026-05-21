@@ -28,6 +28,15 @@ if __name__ == "__main__":
             "next": None,
             "iteration": 0,
             "max_iterations": 1,
+            "messages": [],
+            "working_dir": ".",
+            "file_tree": "",
+            "code_context": "",
+            "plan": None,
+            "last_edit": None,
+            "test_result": None,
+            "last_error": None,
+            "status": "running",
         }
     )
     print("Graph completed!")
