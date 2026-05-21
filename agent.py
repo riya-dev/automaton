@@ -3,9 +3,10 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
-from langgraph.graph import END, START, StateGraph
 
 load_dotenv()
+
+from langgraph.graph import END, START, StateGraph
 
 from nodes import planner, coder, executor, critic, evaluator
 from state import AgentState
@@ -65,26 +66,31 @@ graph = graph_builder.compile()
 
 
 if __name__ == "__main__":
+    from langchain_core.tracers.langchain import wait_for_all_tracers
+
     benchmark_dir = Path("benchmarks/tasks/task_001")
-    result = graph.invoke(
-        {
-            "task": "Fix next_number so it returns the integer after the input value.",
-            "next": None,
-            "iteration": 0,
-            "max_iterations": 2,
-            "messages": [],
-            "working_dir": str(benchmark_dir),
-            "file_tree": "",
-            "code_context": "",
-            "plan": None,
-            "last_edit": None,
-            "test_result": None,
-            "last_error": None,
-            "status": "running",
-            "critique": None,
-            "trajectory": [],
-            "eval_result": None,
-        }
-    )
-    print("Graph completed!")
-    print(result)
+    try:
+        result = graph.invoke(
+            {
+                "task": "Fix next_number so it returns the integer after the input value.",
+                "next": None,
+                "iteration": 0,
+                "max_iterations": 2,
+                "messages": [],
+                "working_dir": str(benchmark_dir),
+                "file_tree": "",
+                "code_context": "",
+                "plan": None,
+                "last_edit": None,
+                "test_result": None,
+                "last_error": None,
+                "status": "running",
+                "critique": None,
+                "trajectory": [],
+                "eval_result": None,
+            }
+        )
+        print("Graph completed!")
+        print(result)
+    finally:
+        wait_for_all_tracers()

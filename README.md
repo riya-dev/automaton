@@ -25,9 +25,10 @@ python -m py_compile state.py nodes.py agent.py eval_harness.py
 To send LangChain/LangGraph traces to LangSmith, set:
 
 ```bash
-export LANGCHAIN_TRACING_V2=true
-export LANGCHAIN_API_KEY=...
-export LANGCHAIN_PROJECT=automaton
+export LANGSMITH_TRACING=true
+export LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+export LANGSMITH_API_KEY=...
+export LANGSMITH_PROJECT=Automaton
 ```
 
 ## Benchmark Results

@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
+from langchain_core.tracers.langchain import wait_for_all_tracers
 from pydantic import BaseModel
 
 from agent import graph
-
-
-load_dotenv()
 
 
 class TaskMetadata(BaseModel):
@@ -224,6 +225,7 @@ def main() -> None:
     trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
     print(f"\nWrote {results_path}")
     print(f"Wrote {trajectory_path}")
+    wait_for_all_tracers()
 
 
 if __name__ == "__main__":
