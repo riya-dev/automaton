@@ -1,0 +1,6 @@
+{
+  "id": "task_003",
+  "prompt": "Fix most_common_word so it returns the most frequently occurring word.",
+  "category": "missing import",
+  "difficulty": "easy"
+}

@@ -1,0 +1,6 @@
+{
+  "id": "task_002",
+  "prompt": "Fix last_index so it returns the final valid zero-based index for a list, or -1 for an empty list.",
+  "category": "off-by-one",
+  "difficulty": "easy"
+}

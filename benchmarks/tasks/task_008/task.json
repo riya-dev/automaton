@@ -1,0 +1,6 @@
+{
+  "id": "task_008",
+  "prompt": "Fix normalize_username so it trims surrounding whitespace, collapses internal whitespace to underscores, and lowercases the result.",
+  "category": "string normalization bug",
+  "difficulty": "easy"
+}

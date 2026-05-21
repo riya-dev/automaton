@@ -4,7 +4,7 @@ import os
 import re
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from state import AgentState, CodeEdit, CritiqueResult, Plan, TestResult
+from state import AgentState, CodeEdit, CritiqueResult, EvalResult, Plan, TestResult, TrajectoryStep
 from tools import list_dir, read_file, run_command, write_file
 
 
@@ -17,6 +17,10 @@ CRITIC_MODEL = os.getenv("AUTOMATON_CRITIC_MODEL", "gemini-2.5-flash-lite")
 
 def _google_llm(model: str):
     return ChatGoogleGenerativeAI(model=model, temperature=0.0)
+
+
+def _step(node: str, summary: str, decision: str | None = None) -> TrajectoryStep:
+    return TrajectoryStep(node=node, summary=summary, decision=decision)
 
 
 def _read_code_context(file_tree: str, working_dir: str) -> str:
@@ -95,7 +99,7 @@ def planner(state: AgentState) -> dict[str, object]:
         "code_context": code_context,
         "plan": plan,
         "next": "coder",
-        "trajectory": ["planner created plan"],
+        "trajectory": [_step("planner", "created plan", "coder")],
     }
 
 
@@ -131,14 +135,16 @@ def coder(state: AgentState) -> dict[str, object]:
             "last_error": write_result,
             "status": "failed",
             "next": "executor",
-            "trajectory": [f"coder failed to write {code_edit.file_path}: {write_result}"],
+            "trajectory": [
+                _step("coder", f"failed to write {code_edit.file_path}: {write_result}", "executor")
+            ],
         }
 
     return {
         "last_edit": code_edit,
         "last_error": None,
         "next": "executor",
-        "trajectory": [f"coder edited {code_edit.file_path}"],
+        "trajectory": [_step("coder", f"edited {code_edit.file_path}", "executor")],
     }
 
 
@@ -148,7 +154,7 @@ def executor(state: AgentState) -> dict[str, object]:
     if state["status"] == "failed":
         return {
             "next": "critic",
-            "trajectory": ["executor skipped because status=failed"],
+            "trajectory": [_step("executor", "skipped because status=failed", "critic")],
         }
 
     output = run_command.invoke(
@@ -166,7 +172,13 @@ def executor(state: AgentState) -> dict[str, object]:
         "status": status,
         "last_error": None if test_result.passed else test_result.failure_summary,
         "next": "critic",
-        "trajectory": [f"executor passed={test_result.passed} failed={test_result.failed_count}"],
+        "trajectory": [
+            _step(
+                "executor",
+                f"passed={test_result.passed} failed={test_result.failed_count}",
+                "critic",
+            )
+        ],
     }
 
 
@@ -233,6 +245,40 @@ def critic(state: AgentState) -> dict[str, object]:
         "status": status,
         "next": critique.verdict,
         "trajectory": [
-            f"critic iteration={iteration} verdict={critique.verdict} summary={critique.summary}"
+            _step(
+                "critic",
+                f"iteration={iteration} summary={critique.summary}",
+                critique.verdict,
+            )
+        ],
+    }
+
+
+def evaluator(state: AgentState) -> dict[str, object]:
+    """Produce a deterministic final evaluation for the run."""
+    print("-> Evaluator node")
+    iterations = state.get("iteration", 0)
+    max_iterations = state.get("max_iterations", 1)
+    success = state["status"] == "passed"
+    eval_result = EvalResult(
+        success=success,
+        final_status=state["status"],
+        iterations_used=iterations,
+        trajectory_efficiency=iterations / max_iterations if max_iterations else 0.0,
+        summary=(
+            "Run passed all tests."
+            if success
+            else f"Run ended with status={state['status']} after {iterations} iterations."
+        ),
+    )
+
+    return {
+        "eval_result": eval_result,
+        "trajectory": [
+            _step(
+                "evaluator",
+                eval_result.summary,
+                "end",
+            )
         ],
     }

@@ -1,0 +1,6 @@
+{
+  "id": "task_004",
+  "prompt": "Fix parse_count so it parses and returns an integer count from text.",
+  "category": "wrong return type",
+  "difficulty": "easy"
+}

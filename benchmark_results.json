@@ -1,0 +1,552 @@
+[
+  {
+    "task_id": "task_001",
+    "category": "off-by-one",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 4.7,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited sequence.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_002",
+    "category": "off-by-one",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 5.44,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited ranges.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_003",
+    "category": "missing import",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 11.89,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited word_counts.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_004",
+    "category": "wrong return type",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 12.82,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited parser.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_005",
+    "category": "logic error",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 10.44,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited permissions.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_006",
+    "category": "missing function",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 5.16,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited slug.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_007",
+    "category": "bad default argument",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 6.07,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited tags.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_008",
+    "category": "string normalization bug",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 3.99,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited usernames.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_009",
+    "category": "date edge case",
+    "difficulty": "medium",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 3.47,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited calendar_math.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  },
+  {
+    "task_id": "task_010",
+    "category": "exception handling bug",
+    "difficulty": "easy",
+    "success": true,
+    "status": "passed",
+    "iterations": 1,
+    "duration_seconds": 3.05,
+    "critique_verdict": "done",
+    "trajectory": [
+      {
+        "node": "planner",
+        "summary": "created plan",
+        "decision": "coder",
+        "latency_seconds": null
+      },
+      {
+        "node": "coder",
+        "summary": "edited division.py",
+        "decision": "executor",
+        "latency_seconds": null
+      },
+      {
+        "node": "executor",
+        "summary": "passed=True failed=0",
+        "decision": "critic",
+        "latency_seconds": null
+      },
+      {
+        "node": "critic",
+        "summary": "iteration=1 summary=Tests passed.",
+        "decision": "done",
+        "latency_seconds": null
+      },
+      {
+        "node": "evaluator",
+        "summary": "Run passed all tests.",
+        "decision": "end",
+        "latency_seconds": null
+      }
+    ],
+    "critique": {
+      "summary": "Tests passed.",
+      "issues": [],
+      "confidence": 1.0,
+      "verdict": "done"
+    },
+    "eval_result": {
+      "success": true,
+      "final_status": "passed",
+      "iterations_used": 1,
+      "trajectory_efficiency": 0.16666666666666666,
+      "summary": "Run passed all tests."
+    }
+  }
+]

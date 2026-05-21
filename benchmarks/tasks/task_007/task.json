@@ -1,0 +1,6 @@
+{
+  "id": "task_007",
+  "prompt": "Fix append_tag so calls without an explicit tag list do not share mutable state.",
+  "category": "bad default argument",
+  "difficulty": "easy"
+}

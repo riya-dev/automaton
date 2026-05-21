@@ -7,7 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 load_dotenv()
 
-from nodes import planner, coder, executor, critic
+from nodes import planner, coder, executor, critic, evaluator
 from state import AgentState
 
 
@@ -16,19 +16,19 @@ def critic_router(state: AgentState) -> str:
     critique = state.get("critique")
 
     if state["status"] == "passed":
-        return "end"
+        return "evaluator"
 
     if critique is None:
-        return "end"
+        return "evaluator"
 
     if state["iteration"] >= state["max_iterations"]:
-        return "end"
+        return "evaluator"
 
     if critique.verdict == "done":
-        return "end"
+        return "evaluator"
 
     if critique.verdict == "give_up":
-        return "end"
+        return "evaluator"
 
     if critique.verdict == "replan":
         return "planner"
@@ -36,7 +36,7 @@ def critic_router(state: AgentState) -> str:
     if critique.verdict == "continue":
         return "coder"
 
-    return "end"
+    return "evaluator"
 
 
 graph_builder = StateGraph(AgentState)
@@ -44,6 +44,7 @@ graph_builder.add_node("planner", planner)
 graph_builder.add_node("coder", coder)
 graph_builder.add_node("executor", executor)
 graph_builder.add_node("critic", critic)
+graph_builder.add_node("evaluator", evaluator)
 
 graph_builder.add_edge(START, "planner")
 graph_builder.add_edge("planner", "coder")
@@ -55,9 +56,10 @@ graph_builder.add_conditional_edges(
     {
         "planner": "planner",
         "coder": "coder",
-        "end": END,
+        "evaluator": "evaluator",
     },
 )
+graph_builder.add_edge("evaluator", END)
 
 graph = graph_builder.compile()
 
@@ -81,6 +83,7 @@ if __name__ == "__main__":
             "status": "running",
             "critique": None,
             "trajectory": [],
+            "eval_result": None,
         }
     )
     print("Graph completed!")

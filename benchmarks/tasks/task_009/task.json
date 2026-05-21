@@ -1,0 +1,6 @@
+{
+  "id": "task_009",
+  "prompt": "Fix is_leap_year so it handles century years correctly.",
+  "category": "date edge case",
+  "difficulty": "medium"
+}

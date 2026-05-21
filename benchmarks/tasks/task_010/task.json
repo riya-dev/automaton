@@ -1,0 +1,6 @@
+{
+  "id": "task_010",
+  "prompt": "Fix safe_divide so it returns None when division cannot be performed and otherwise returns the quotient.",
+  "category": "exception handling bug",
+  "difficulty": "easy"
+}

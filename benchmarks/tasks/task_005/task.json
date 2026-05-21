@@ -1,0 +1,6 @@
+{
+  "id": "task_005",
+  "prompt": "Fix can_edit_document so document owners or admins can edit, while unprivileged users cannot.",
+  "category": "logic error",
+  "difficulty": "easy"
+}

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 from agent import graph
 
@@ -17,19 +18,13 @@ from agent import graph
 load_dotenv()
 
 
-TASKS = {
-    "task_001": "Fix next_number so it returns the integer after the input value.",
-    "task_002": (
-        "Fix last_index so it returns the final valid zero-based index for a list, "
-        "or -1 for an empty list."
-    ),
-    "task_003": "Fix most_common_word so it returns the most frequently occurring word.",
-    "task_004": "Fix parse_count so it parses and returns an integer count from text.",
-    "task_005": (
-        "Fix can_edit_document so document owners or admins can edit, while "
-        "unprivileged users cannot."
-    ),
-}
+class TaskMetadata(BaseModel):
+    """Metadata describing one benchmark task."""
+
+    id: str
+    prompt: str
+    category: str
+    difficulty: str
 
 
 def _initial_state(task: str, working_dir: Path) -> dict[str, Any]:
@@ -49,6 +44,7 @@ def _initial_state(task: str, working_dir: Path) -> dict[str, Any]:
         "status": "running",
         "critique": None,
         "trajectory": [],
+        "eval_result": None,
     }
 
 
@@ -62,8 +58,24 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def run_task(task_id: str, task: str, source_dir: Path, temp_root: Path) -> dict[str, Any]:
-    work_dir = temp_root / task_id
+def load_tasks(tasks_root: Path) -> list[tuple[TaskMetadata, Path]]:
+    tasks: list[tuple[TaskMetadata, Path]] = []
+
+    for task_dir in sorted(path for path in tasks_root.iterdir() if path.is_dir()):
+        metadata_path = task_dir / "task.json"
+        if not metadata_path.exists():
+            continue
+
+        metadata = TaskMetadata.model_validate_json(
+            metadata_path.read_text(encoding="utf-8")
+        )
+        tasks.append((metadata, task_dir))
+
+    return tasks
+
+
+def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[str, Any]:
+    work_dir = temp_root / metadata.id
     shutil.copytree(
         source_dir,
         work_dir,
@@ -72,44 +84,49 @@ def run_task(task_id: str, task: str, source_dir: Path, temp_root: Path) -> dict
 
     started_at = time.perf_counter()
     try:
-        result = graph.invoke(_initial_state(task, work_dir))
+        result = graph.invoke(_initial_state(metadata.prompt, work_dir))
         duration = time.perf_counter() - started_at
-        test_result = result.get("test_result")
-        success = result.get("status") == "passed" and bool(
-            getattr(test_result, "passed", False)
-        )
+        eval_result = result.get("eval_result")
+        critique = result.get("critique")
 
         return {
-            "task_id": task_id,
-            "success": success,
-            "status": result.get("status"),
-            "iterations": result.get("iteration", 0),
+            "task_id": metadata.id,
+            "category": metadata.category,
+            "difficulty": metadata.difficulty,
+            "success": bool(getattr(eval_result, "success", False)),
+            "status": getattr(eval_result, "final_status", result.get("status")),
+            "iterations": getattr(eval_result, "iterations_used", result.get("iteration", 0)),
             "duration_seconds": round(duration, 2),
-            "trajectory": result.get("trajectory", []),
-            "critique": _jsonable(result.get("critique")),
+            "critique_verdict": getattr(critique, "verdict", None),
+            "trajectory": _jsonable(result.get("trajectory", [])),
+            "critique": _jsonable(critique),
+            "eval_result": _jsonable(eval_result),
         }
     except Exception as error:
         duration = time.perf_counter() - started_at
         return {
-            "task_id": task_id,
+            "task_id": metadata.id,
+            "category": metadata.category,
+            "difficulty": metadata.difficulty,
             "success": False,
             "status": "error",
             "iterations": 0,
             "duration_seconds": round(duration, 2),
+            "critique_verdict": None,
             "error": str(error),
             "trajectory": [],
             "critique": None,
+            "eval_result": None,
         }
 
 
 def print_table(results: list[dict[str, Any]]) -> None:
-    print("| task | success | status | iterations | seconds |")
-    print("| --- | --- | --- | ---: | ---: |")
+    print("| task | category | success | status | verdict | iterations | seconds |")
+    print("| --- | --- | --- | --- | --- | ---: | ---: |")
     for result in results:
         print(
-            "| {task_id} | {success} | {status} | {iterations} | {duration_seconds} |".format(
-                **result
-            )
+            "| {task_id} | {category} | {success} | {status} | "
+            "{critique_verdict} | {iterations} | {duration_seconds} |".format(**result)
         )
 
 
@@ -117,13 +134,17 @@ def main() -> None:
     root = Path(__file__).parent
     tasks_root = root / "benchmarks" / "tasks"
     results_path = root / "benchmark_results.json"
+    tasks = load_tasks(tasks_root)
+
+    if not tasks:
+        raise SystemExit(f"No task.json files found under {tasks_root}")
 
     results = []
     with tempfile.TemporaryDirectory(prefix="automaton-bench-") as temp_dir:
         temp_root = Path(temp_dir)
-        for task_id, task in TASKS.items():
-            print(f"Running {task_id}...")
-            results.append(run_task(task_id, task, tasks_root / task_id, temp_root))
+        for metadata, task_dir in tasks:
+            print(f"Running {metadata.id}...")
+            results.append(run_task(metadata, task_dir, temp_root))
 
     print()
     print_table(results)

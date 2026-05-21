@@ -41,10 +41,30 @@ class TestResult(BaseModel):
 
 class CritiqueResult(BaseModel):
     """Structured judgment produced by the critic node."""
+
     summary: str
     issues: list[str]
     confidence: float
     verdict: Literal["continue", "replan", "done", "give_up"]
+
+
+class TrajectoryStep(BaseModel):
+    """One observable step in an agent run."""
+
+    node: str
+    summary: str
+    decision: str | None = None
+    latency_seconds: float | None = None
+
+
+class EvalResult(BaseModel):
+    """Final deterministic evaluation for one agent run."""
+
+    success: bool
+    final_status: str
+    iterations_used: int
+    trajectory_efficiency: float
+    summary: str
 
 
 class AgentState(TypedDict):
@@ -64,4 +84,5 @@ class AgentState(TypedDict):
     last_error: str | None
     status: Literal["running", "passed", "failed", "max_iter_reached"]
     critique: CritiqueResult | None
-    trajectory: Annotated[list[str], operator.add]
+    trajectory: Annotated[list[TrajectoryStep], operator.add]
+    eval_result: EvalResult | None

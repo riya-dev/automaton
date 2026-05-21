@@ -1,0 +1,6 @@
+{
+  "id": "task_001",
+  "prompt": "Fix next_number so it returns the integer after the input value.",
+  "category": "off-by-one",
+  "difficulty": "easy"
+}

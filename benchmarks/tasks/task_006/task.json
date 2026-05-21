@@ -1,0 +1,6 @@
+{
+  "id": "task_006",
+  "prompt": "Fix slugify_title so it normalizes whitespace, lowercases text, and joins words with hyphens.",
+  "category": "missing function",
+  "difficulty": "easy"
+}
