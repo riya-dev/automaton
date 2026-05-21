@@ -2,9 +2,18 @@
 
 import os
 import re
+import time
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from state import AgentState, CodeEdit, CritiqueResult, EvalResult, Plan, TestResult, TrajectoryStep
+from state import (
+    AgentState,
+    CodeEdit,
+    CritiqueResult,
+    EvalResult,
+    Plan,
+    TestResult,
+    TrajectoryStep,
+)
 from tools import list_dir, read_file, run_command, write_file
 
 
@@ -19,8 +28,22 @@ def _google_llm(model: str):
     return ChatGoogleGenerativeAI(model=model, temperature=0.0)
 
 
-def _step(node: str, summary: str, decision: str | None = None) -> TrajectoryStep:
-    return TrajectoryStep(node=node, summary=summary, decision=decision)
+def _step(
+    node: str,
+    summary: str,
+    decision: str | None = None,
+    started_at: float | None = None,
+) -> TrajectoryStep:
+    latency = None
+    if started_at is not None:
+        latency = round(time.perf_counter() - started_at, 3)
+
+    return TrajectoryStep(
+        node=node,
+        summary=summary,
+        decision=decision,
+        latency_seconds=latency,
+    )
 
 
 def _read_code_context(file_tree: str, working_dir: str) -> str:
@@ -76,6 +99,7 @@ def _parse_pytest_result(command_output: str) -> TestResult:
 
 def planner(state: AgentState) -> dict[str, object]:
     """Build context and produce a structured implementation plan."""
+    started_at = time.perf_counter()
     print("-> Planner node")
     working_dir = state["working_dir"]
     file_tree = list_dir.invoke({"path": ".", "working_dir": working_dir, "depth": 2})
@@ -99,12 +123,13 @@ def planner(state: AgentState) -> dict[str, object]:
         "code_context": code_context,
         "plan": plan,
         "next": "coder",
-        "trajectory": [_step("planner", "created plan", "coder")],
+        "trajectory": [_step("planner", "created plan", "coder", started_at)],
     }
 
 
 def coder(state: AgentState) -> dict[str, object]:
     """Produce and apply a structured full-file code edit."""
+    started_at = time.perf_counter()
     print("-> Coder node")
     coder_llm = _google_llm(CODER_MODEL).with_structured_output(CodeEdit)
 
@@ -136,7 +161,12 @@ def coder(state: AgentState) -> dict[str, object]:
             "status": "failed",
             "next": "executor",
             "trajectory": [
-                _step("coder", f"failed to write {code_edit.file_path}: {write_result}", "executor")
+                _step(
+                    "coder",
+                    f"failed to write {code_edit.file_path}: {write_result}",
+                    "executor",
+                    started_at,
+                )
             ],
         }
 
@@ -144,17 +174,27 @@ def coder(state: AgentState) -> dict[str, object]:
         "last_edit": code_edit,
         "last_error": None,
         "next": "executor",
-        "trajectory": [_step("coder", f"edited {code_edit.file_path}", "executor")],
+        "trajectory": [
+            _step("coder", f"edited {code_edit.file_path}", "executor", started_at)
+        ],
     }
 
 
 def executor(state: AgentState) -> dict[str, object]:
     """Run pytest and parse the result."""
+    started_at = time.perf_counter()
     print("-> Executor node")
     if state["status"] == "failed":
         return {
             "next": "critic",
-            "trajectory": [_step("executor", "skipped because status=failed", "critic")],
+            "trajectory": [
+                _step(
+                    "executor",
+                    "skipped because status=failed",
+                    "critic",
+                    started_at,
+                )
+            ],
         }
 
     output = run_command.invoke(
@@ -177,6 +217,7 @@ def executor(state: AgentState) -> dict[str, object]:
                 "executor",
                 f"passed={test_result.passed} failed={test_result.failed_count}",
                 "critic",
+                started_at,
             )
         ],
     }
@@ -184,6 +225,7 @@ def executor(state: AgentState) -> dict[str, object]:
 
 def critic(state: AgentState) -> dict[str, object]:
     """Critique the latest attempt and decide the next route."""
+    started_at = time.perf_counter()
     print("-> Critic node")
     iteration = state.get("iteration", 0) + 1
 
@@ -249,6 +291,7 @@ def critic(state: AgentState) -> dict[str, object]:
                 "critic",
                 f"iteration={iteration} summary={critique.summary}",
                 critique.verdict,
+                started_at,
             )
         ],
     }
@@ -256,6 +299,7 @@ def critic(state: AgentState) -> dict[str, object]:
 
 def evaluator(state: AgentState) -> dict[str, object]:
     """Produce a deterministic final evaluation for the run."""
+    started_at = time.perf_counter()
     print("-> Evaluator node")
     iterations = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 1)
@@ -279,6 +323,7 @@ def evaluator(state: AgentState) -> dict[str, object]:
                 "evaluator",
                 eval_result.summary,
                 "end",
+                started_at,
             )
         ],
     }

@@ -6,6 +6,7 @@ import json
 import shutil
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,64 @@ def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[
         }
 
 
+def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[str, Any]:
+    total_tasks = len(results)
+    passed = sum(1 for result in results if result["success"])
+    failed = total_tasks - passed
+    total_iterations = sum(result["iterations"] for result in results)
+    total_duration = sum(result["duration_seconds"] for result in results)
+
+    return {
+        "created_at": created_at,
+        "total_tasks": total_tasks,
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": round(passed / total_tasks, 3) if total_tasks else 0.0,
+        "average_iterations": round(total_iterations / total_tasks, 2)
+        if total_tasks
+        else 0.0,
+        "average_duration_seconds": round(total_duration / total_tasks, 2)
+        if total_tasks
+        else 0.0,
+    }
+
+
+def metrics_for_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": result["task_id"],
+        "category": result["category"],
+        "difficulty": result["difficulty"],
+        "success": result["success"],
+        "status": result["status"],
+        "iterations": result["iterations"],
+        "duration_seconds": result["duration_seconds"],
+        "critique_verdict": result["critique_verdict"],
+    }
+
+
+def report_for_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": result["task_id"],
+        "category": result["category"],
+        "difficulty": result["difficulty"],
+        "trajectory": result["trajectory"],
+        "critique": result["critique"],
+        "eval_result": result["eval_result"],
+        **({"error": result["error"]} if "error" in result else {}),
+    }
+
+
+def print_summary(summary: dict[str, Any]) -> None:
+    print("Summary:")
+    print(f"- total tasks: {summary['total_tasks']}")
+    print(f"- passed: {summary['passed']}")
+    print(f"- failed: {summary['failed']}")
+    print(f"- pass rate: {summary['pass_rate']:.1%}")
+    print(f"- average iterations: {summary['average_iterations']}")
+    print(f"- average duration: {summary['average_duration_seconds']}s")
+    print()
+
+
 def print_table(results: list[dict[str, Any]]) -> None:
     print("| task | category | success | status | verdict | iterations | seconds |")
     print("| --- | --- | --- | --- | --- | ---: | ---: |")
@@ -134,6 +193,8 @@ def main() -> None:
     root = Path(__file__).parent
     tasks_root = root / "benchmarks" / "tasks"
     results_path = root / "benchmark_results.json"
+    trajectory_path = root / "trajectory_report.json"
+    created_at = datetime.now(UTC).isoformat()
     tasks = load_tasks(tasks_root)
 
     if not tasks:
@@ -147,9 +208,22 @@ def main() -> None:
             results.append(run_task(metadata, task_dir, temp_root))
 
     print()
+    summary = summarize_results(results, created_at)
+    print_summary(summary)
     print_table(results)
-    results_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    results_payload = {
+        "created_at": created_at,
+        "summary": summary,
+        "results": [metrics_for_result(result) for result in results],
+    }
+    trajectory_payload = {
+        "created_at": created_at,
+        "runs": [report_for_result(result) for result in results],
+    }
+    results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
+    trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
     print(f"\nWrote {results_path}")
+    print(f"Wrote {trajectory_path}")
 
 
 if __name__ == "__main__":

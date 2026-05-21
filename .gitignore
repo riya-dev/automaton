@@ -24,6 +24,10 @@ dist/
 # Logs
 *.log
 
+# Generated reports
+benchmark_results.json
+trajectory_report.json
+
 # OS and editor files
 .DS_Store
 .idea/
