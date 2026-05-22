@@ -4,7 +4,7 @@ import operator
 from typing import Annotated, Literal, TypedDict
 
 from langchain_core.messages import BaseMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PlanStep(BaseModel):
@@ -63,13 +63,18 @@ class TrajectoryStep(BaseModel):
 
 
 class EvalResult(BaseModel):
-    """Final deterministic evaluation for one agent run."""
+    """Final evaluation for one agent run."""
 
     success: bool
     final_status: str
     iterations_used: int
     trajectory_efficiency: float
     summary: str
+    correctness: float = Field(ge=0, le=10)
+    code_quality: float = Field(ge=0, le=10)
+    efficiency: float = Field(ge=0, le=10)
+    robustness: float = Field(ge=0, le=10)
+    notes: str
     input_tokens: int = 0
     output_tokens: int = 0
     thinking_tokens: int = 0

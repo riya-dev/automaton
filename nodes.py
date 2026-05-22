@@ -6,6 +6,8 @@ import time
 import logging
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from state import (
     AgentState,
@@ -22,8 +24,9 @@ from tools import list_dir, read_file, run_command, write_file
 CONTEXT_FILE_SUFFIXES = {".py", ".toml", ".md"}
 MAX_CONTEXT_FILES = 8
 PLANNER_MODEL = os.getenv("AUTOMATON_PLANNER_MODEL", "gemini-2.5-flash-lite")
-CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash-lite")
+CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash")
 CRITIC_MODEL = os.getenv("AUTOMATON_CRITIC_MODEL", "gemini-2.5-flash-lite")
+EVALUATOR_MODEL = os.getenv("AUTOMATON_EVALUATOR_MODEL", "gemini-2.5-flash")
 LOGGER = logging.getLogger(__name__)
 GEMINI_FLASH_LITE_INPUT_PER_1M = float(
     os.getenv("AUTOMATON_GEMINI_FLASH_LITE_INPUT_PER_1M", "0.10")
@@ -34,6 +37,30 @@ GEMINI_FLASH_LITE_OUTPUT_PER_1M = float(
 GEMINI_FLASH_LITE_THINKING_PER_1M = float(
     os.getenv("AUTOMATON_GEMINI_FLASH_LITE_THINKING_PER_1M", "0.10")
 )
+GEMINI_FLASH_INPUT_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_INPUT_PER_1M", "0.30")
+)
+GEMINI_FLASH_OUTPUT_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_OUTPUT_PER_1M", "2.50")
+)
+GEMINI_FLASH_THINKING_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_THINKING_PER_1M", "3.50")
+)
+CODER_MAX_STEPS = max(1, int(os.getenv("AUTOMATON_CODER_MAX_STEPS", "10")))
+
+REACT_CODER_SYSTEM_PROMPT = """\
+You are an expert coding agent. Use tools to read files, explore the project, \
+write implementations, and run tests to verify your work.
+
+Rules:
+- Never edit test files (test_*.py) — fix implementation files only.
+- Use read_file_tool and list_dir_tool to understand the code before editing.
+- Use run_command_tool to run pytest and check progress mid-loop.
+- Use write_file_tool to write your implementation when ready.
+- When you are confident the implementation is correct, stop calling tools.
+
+Stop issuing tool calls once the implementation is complete.\
+"""
 
 
 def _google_llm(model: str):
@@ -46,6 +73,12 @@ def _model_rates(model: str | None) -> tuple[float, float, float]:
             GEMINI_FLASH_LITE_INPUT_PER_1M,
             GEMINI_FLASH_LITE_OUTPUT_PER_1M,
             GEMINI_FLASH_LITE_THINKING_PER_1M,
+        )
+    if model == "gemini-2.5-flash":
+        return (
+            GEMINI_FLASH_INPUT_PER_1M,
+            GEMINI_FLASH_OUTPUT_PER_1M,
+            GEMINI_FLASH_THINKING_PER_1M,
         )
     if model is not None:
         LOGGER.warning("No pricing configured for model %r; cost_usd will be 0.0", model)
@@ -245,71 +278,146 @@ def planner(state: AgentState) -> dict[str, object]:
     }
 
 
-def coder(state: AgentState) -> dict[str, object]:
-    """Produce and apply a structured full-file code edit."""
-    started_at = time.perf_counter()
-    LOGGER.debug("Coder node started")
-    coder_llm = _google_llm(CODER_MODEL).with_structured_output(
-        CodeEdit, include_raw=True
-    )
+def _make_coder_tools(working_dir: str) -> list:
+    @tool
+    def read_file_tool(path: str) -> str:
+        """Read a file relative to the working directory."""
+        return read_file.invoke({"path": path, "working_dir": working_dir})
 
+    @tool
+    def write_file_tool(path: str, content: str) -> str:
+        """Write full content to a file relative to the working directory."""
+        return write_file.invoke({"path": path, "content": content, "working_dir": working_dir})
+
+    @tool
+    def run_command_tool(command: str) -> str:
+        """Run an allowlisted command (e.g. pytest) in the working directory."""
+        return run_command.invoke({"command": command, "working_dir": working_dir, "timeout": 30})
+
+    @tool
+    def list_dir_tool(path: str = ".", depth: int = 2) -> str:
+        """List directory contents relative to the working directory."""
+        return list_dir.invoke({"path": path, "working_dir": working_dir, "depth": depth})
+
+    return [read_file_tool, write_file_tool, run_command_tool, list_dir_tool]
+
+
+def _build_coder_input(state: AgentState) -> str:
     test_result = state.get("test_result")
     failure_context = test_result.failure_summary if test_result is not None else "No tests run yet."
-    critique_context = state.get("critique")
-
-    response = coder_llm.invoke(
-        (
-            "Return exactly one full-file edit that addresses the task and failing tests.\n\n"
-            "Do not edit test files unless the task explicitly asks you to update tests. "
-            "For benchmark tasks, preserve all test_*.py files and fix implementation "
-            "files instead.\n\n"
-            f"Task:\n{state['task']}\n\n"
-            f"Plan:\n{state['plan']}\n\n"
-            f"Critique:\n{critique_context}\n\n"
-            f"Code context:\n{state['code_context']}\n\n"
-            f"Latest test failure:\n{failure_context}"
-        ),
-        config={"run_name": "coder:model", "tags": ["coder", "model"]},
-    )
-    code_edit = response["parsed"]
-    if code_edit is None:
-        raise RuntimeError(f"Coder failed to parse LLM response: {response.get('parsing_error')}")
-    usage = _usage_for_response(response, CODER_MODEL)
-    write_result = write_file.invoke(
-        {
-            "path": code_edit.file_path,
-            "content": code_edit.content,
-            "working_dir": state["working_dir"],
-        }
+    plan = state.get("plan")
+    critique = state.get("critique")
+    plan_text = plan.model_dump_json(indent=2) if plan is not None else "No plan available."
+    critique_text = critique.model_dump_json(indent=2) if critique is not None else "No critique yet."
+    return (
+        f"Task:\n{state['task']}\n\n"
+        f"Plan:\n{plan_text}\n\n"
+        f"Previous critique:\n{critique_text}\n\n"
+        f"Code context:\n{state['code_context']}\n\n"
+        f"Latest test failure:\n{failure_context}"
     )
 
-    if write_result.startswith("Error writing"):
+
+def coder(state: AgentState) -> dict[str, object]:
+    """ReAct-style coder node with an inner tool-calling loop."""
+    started_at = time.perf_counter()
+    LOGGER.debug("Coder node started (ReAct loop)")
+    working_dir = state["working_dir"]
+
+    coder_tools = _make_coder_tools(working_dir)
+    tool_map = {t.name: t for t in coder_tools}
+    coder_llm = _google_llm(CODER_MODEL).bind_tools(coder_tools)
+
+    messages: list = [
+        SystemMessage(content=REACT_CODER_SYSTEM_PROMPT),
+        HumanMessage(content=_build_coder_input(state)),
+    ]
+
+    total_input_tokens = total_output_tokens = total_thinking_tokens = 0
+    steps_taken = 0
+    last_edit: CodeEdit | None = None
+    exhausted = False
+
+    for _ in range(CODER_MAX_STEPS):
+        steps_taken += 1
+        response = coder_llm.invoke(
+            messages,
+            config={"run_name": "coder:model", "tags": ["coder", "model"]},
+        )
+        usage = _usage_for_response({"raw": response}, CODER_MODEL)
+        total_input_tokens += usage["input_tokens"]
+        total_output_tokens += usage["output_tokens"]
+        total_thinking_tokens += usage["thinking_tokens"]
+        messages.append(response)
+
+        if not response.tool_calls:
+            content = response.content if isinstance(response.content, str) else ""
+            if not content.strip():
+                # Empty response: Gemini Flash Lite occasionally returns nothing
+                # after a tool result. Nudge it to write the fix rather than giving up.
+                LOGGER.warning("Coder got empty response on step %d; nudging model", steps_taken)
+                messages.append(HumanMessage(content="You haven't written the fix yet. Use write_file_tool now to apply your solution."))
+                continue
+            break
+
+        for tool_call in response.tool_calls:
+            name = tool_call["name"]
+            args = tool_call["args"]
+            try:
+                result = tool_map[name].invoke(args) if name in tool_map else f"Unknown tool: {name}"
+            except Exception as exc:
+                LOGGER.warning("Tool %r raised during coder loop: %s", name, exc)
+                result = f"Tool error ({name}): {exc}"
+            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+            if name == "write_file_tool":
+                last_edit = CodeEdit(file_path=args["path"], content=args["content"])
+    else:
+        exhausted = True
+        LOGGER.warning("Coder ReAct loop exhausted all %d steps without a clean finish", CODER_MAX_STEPS)
+
+    total_cost = _cost_usd(CODER_MODEL, total_input_tokens, total_output_tokens, total_thinking_tokens)
+
+    if last_edit is None:
+        error_msg = (
+            f"Coder loop exhausted {CODER_MAX_STEPS} steps without writing any file."
+            if exhausted
+            else f"Coder produced no file edits within the step budget ({CODER_MAX_STEPS} steps)."
+        )
         return {
-            "last_error": write_result,
+            "last_edit": None,
+            "last_error": error_msg,
             "status": "failed",
             "next": "executor",
             "trajectory": [
                 _step(
                     "coder",
-                    f"failed to write {code_edit.file_path}: {write_result}",
+                    error_msg,
                     "executor",
                     started_at,
-                    **usage,
+                    model=CODER_MODEL,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    thinking_tokens=total_thinking_tokens,
+                    cost_usd=total_cost,
                 )
             ],
         }
 
     return {
-        "last_edit": code_edit,
+        "last_edit": last_edit,
         "last_error": None,
         "next": "executor",
         "trajectory": [
             _step(
                 "coder",
-                f"edited {code_edit.file_path}",
+                f"ReAct loop: {steps_taken} step(s), last_edit={last_edit.file_path}",
                 "executor",
                 started_at,
-                **usage,
+                model=CODER_MODEL,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                thinking_tokens=total_thinking_tokens,
+                cost_usd=total_cost,
             )
         ],
     }
@@ -448,12 +556,11 @@ def critic(state: AgentState) -> dict[str, object]:
 
 
 def evaluator(state: AgentState) -> dict[str, object]:
-    """Produce a deterministic final evaluation for the run."""
+    """Use an LLM judge to produce a final evaluation for the run."""
     started_at = time.perf_counter()
     LOGGER.debug("Evaluator node started")
     iterations = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 1)
-    success = state["status"] == "passed"
     trajectory = state.get("trajectory", [])
     input_tokens = sum(step.input_tokens for step in trajectory)
     output_tokens = sum(step.output_tokens for step in trajectory)
@@ -462,21 +569,53 @@ def evaluator(state: AgentState) -> dict[str, object]:
         _cost_usd(step.model, step.input_tokens, step.output_tokens, step.thinking_tokens)
         for step in trajectory
     )
-    eval_result = EvalResult(
-        success=success,
-        final_status=state["status"],
-        iterations_used=iterations,
-        trajectory_efficiency=iterations / max_iterations if max_iterations else 0.0,
-        summary=(
-            "Run passed all tests."
-            if success
-            else f"Run ended with status={state['status']} after {iterations} iterations."
-        ),
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        thinking_tokens=thinking_tokens,
-        cost_usd=round(cost_usd, 8),
+
+    try:
+        import instructor
+        from google.genai import Client
+    except ImportError as error:
+        raise RuntimeError(
+            "Evaluator requires instructor with google-genai support. "
+            "Install project dependencies before running the evaluator."
+        ) from error
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    genai_client = Client(api_key=api_key) if api_key else Client()
+    judge = instructor.from_genai(genai_client)
+    prompt = f"""Evaluate the final solution for this coding task.
+
+Original task: {state['task']}
+Final status: {state['status']}
+Final code changes: {state.get('last_edit')}
+Test results: {state.get('test_result')}
+Critique history: {state.get('critique')}
+Iterations used: {iterations} of {max_iterations}
+
+Score the solution on:
+- Correctness (does it actually solve the task and pass tests?)
+- Code quality & style
+- Efficiency / simplicity
+- Robustness
+
+Return structured EvalResult with scores 0-10 and detailed notes.
+Populate success, final_status, iterations_used, trajectory_efficiency, and summary
+from the run metadata above."""
+
+    eval_result = judge.chat.completions.create(
+        model=EVALUATOR_MODEL,
+        response_model=EvalResult,
+        messages=[{"role": "user", "content": prompt}],
+        max_retries=2,
     )
+
+    eval_result.success = state["status"] == "passed" and eval_result.correctness >= 7
+    eval_result.final_status = state["status"]
+    eval_result.iterations_used = iterations
+    eval_result.trajectory_efficiency = iterations / max_iterations if max_iterations else 0.0
+    eval_result.input_tokens = input_tokens
+    eval_result.output_tokens = output_tokens
+    eval_result.thinking_tokens = thinking_tokens
+    eval_result.cost_usd = round(cost_usd, 8)
 
     return {
         "eval_result": eval_result,
@@ -486,6 +625,7 @@ def evaluator(state: AgentState) -> dict[str, object]:
                 eval_result.summary,
                 "end",
                 started_at,
+                model=EVALUATOR_MODEL,
             )
         ],
     }
