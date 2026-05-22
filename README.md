@@ -62,6 +62,18 @@ Run the full benchmark suite:
 python eval_harness.py
 ```
 
+Label a benchmark variant, such as a future ReAct implementation:
+
+```bash
+python eval_harness.py --strategy structured
+python eval_harness.py --strategy react
+python compare_runs.py --baseline-strategy structured --candidate-strategy react
+```
+
+The strategy value is preserved in LangSmith tags/metadata and result JSON.
+Strategy-specific filenames use a slug, so `--strategy "ReAct Tools"` writes
+files like `latest_react-tools_results.json`.
+
 Run the local Streamlit UI:
 
 ```bash
@@ -111,9 +123,15 @@ export AUTOMATON_GEMINI_FLASH_LITE_THINKING_PER_1M=0.10
 - `trajectory_report.json`: latest detailed trajectories, critiques, eval results
 - `benchmark_runs/latest_results.json`: latest compact metrics
 - `benchmark_runs/latest_trajectory.json`: latest detailed report
+- `benchmark_runs/latest_{strategy_slug}_results.json`: latest compact metrics for a named variant
+- `benchmark_runs/latest_{strategy_slug}_trajectory.json`: latest detailed report for a named variant
 - `benchmark_runs/history/*`: timestamped local benchmark history
 
 Generated reports are ignored by git.
+
+`compare_runs.py` compares two result files or the latest two named strategies.
+It reports pass rate, speed, cost, token, and iteration deltas, then prints
+per-task deltas for all shared tasks.
 
 ## LangSmith
 
@@ -122,9 +140,10 @@ the `Automaton` LangSmith project. Each benchmark task is invoked with a named
 top-level run, tags, and task metadata:
 
 - Run name: `automaton:{task_id}`
-- Tags: `automaton`, `benchmark`, run source, category, difficulty
+- Tags: `automaton`, `benchmark`, run source, `strategy:{strategy}`, category,
+  difficulty
 - Metadata: task id, category, difficulty, source directory, working directory,
-  max iterations, run source
+  max iterations, run source, strategy
 
 Expected trace shape:
 

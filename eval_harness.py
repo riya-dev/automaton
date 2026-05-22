@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import argparse
 import shutil
 import tempfile
 import time
@@ -19,6 +20,7 @@ from langchain_core.tracers.langchain import wait_for_all_tracers
 from pydantic import BaseModel
 
 from agent import graph
+from benchmark_utils import strategy_slug as make_strategy_slug
 
 
 class TaskMetadata(BaseModel):
@@ -98,6 +100,7 @@ def _trace_config(
     source_dir: Path,
     work_dir: Path,
     run_source: str,
+    strategy: str,
 ) -> dict[str, Any]:
     return {
         "run_name": f"automaton:{metadata.id}",
@@ -105,6 +108,7 @@ def _trace_config(
             "automaton",
             "benchmark",
             run_source,
+            f"strategy:{strategy}",
             metadata.category,
             metadata.difficulty,
         ],
@@ -116,6 +120,7 @@ def _trace_config(
             "working_dir": str(work_dir),
             "max_iterations": 6,
             "run_source": run_source,
+            "strategy": strategy,
         },
     }
 
@@ -125,6 +130,7 @@ def run_task(
     source_dir: Path,
     temp_root: Path,
     run_source: str = "eval_harness",
+    strategy: str = "structured",
 ) -> dict[str, Any]:
     work_dir = temp_root / metadata.id
     shutil.copytree(
@@ -138,7 +144,7 @@ def run_task(
     try:
         result = graph.invoke(
             _initial_state(metadata.prompt, work_dir),
-            config=_trace_config(metadata, source_dir, work_dir, run_source),
+            config=_trace_config(metadata, source_dir, work_dir, run_source, strategy),
         )
         duration = time.perf_counter() - started_at
         eval_result = result.get("eval_result")
@@ -159,6 +165,7 @@ def run_task(
             "task_id": metadata.id,
             "category": metadata.category,
             "difficulty": metadata.difficulty,
+            "strategy": strategy,
             "success": bool(getattr(eval_result, "success", False)) and tests_unchanged,
             "status": getattr(eval_result, "final_status", result.get("status")),
             "iterations": getattr(eval_result, "iterations_used", result.get("iteration", 0)),
@@ -180,6 +187,7 @@ def run_task(
             "task_id": metadata.id,
             "category": metadata.category,
             "difficulty": metadata.difficulty,
+            "strategy": strategy,
             "success": False,
             "status": "error",
             "iterations": 0,
@@ -198,7 +206,11 @@ def run_task(
         }
 
 
-def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[str, Any]:
+def summarize_results(
+    results: list[dict[str, Any]],
+    created_at: str,
+    strategy: str,
+) -> dict[str, Any]:
     total_tasks = len(results)
     passed = sum(1 for result in results if result["success"])
     failed = total_tasks - passed
@@ -211,6 +223,7 @@ def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[st
 
     return {
         "created_at": created_at,
+        "strategy": strategy,
         "total_tasks": total_tasks,
         "passed": passed,
         "failed": failed,
@@ -234,6 +247,7 @@ def metrics_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "task_id": result["task_id"],
         "category": result["category"],
         "difficulty": result["difficulty"],
+        "strategy": result["strategy"],
         "success": result["success"],
         "status": result["status"],
         "iterations": result["iterations"],
@@ -253,6 +267,7 @@ def report_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "task_id": result["task_id"],
         "category": result["category"],
         "difficulty": result["difficulty"],
+        "strategy": result["strategy"],
         "trajectory": result["trajectory"],
         "critique": result["critique"],
         "eval_result": result["eval_result"],
@@ -291,18 +306,33 @@ def print_table(results: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run Automaton against benchmark tasks.")
+    parser.add_argument(
+        "--strategy",
+        default="structured",
+        help=(
+            "Experiment label to attach to LangSmith traces and local reports "
+            "(for example: structured or react)."
+        ),
+    )
+    args = parser.parse_args()
+
     root = Path(__file__).parent
     tasks_root = root / "benchmarks" / "tasks"
     results_path = root / "benchmark_results.json"
     trajectory_path = root / "trajectory_report.json"
     created_at = datetime.now(UTC).isoformat()
     history_id = created_at.replace(":", "-")
+    strategy = args.strategy.strip() or "structured"
+    strategy_slug = make_strategy_slug(strategy)
     runs_root = root / "benchmark_runs"
     latest_results_path = runs_root / "latest_results.json"
     latest_trajectory_path = runs_root / "latest_trajectory.json"
+    latest_strategy_results_path = runs_root / f"latest_{strategy_slug}_results.json"
+    latest_strategy_trajectory_path = runs_root / f"latest_{strategy_slug}_trajectory.json"
     history_root = runs_root / "history"
-    history_results_path = history_root / f"{history_id}_results.json"
-    history_trajectory_path = history_root / f"{history_id}_trajectory.json"
+    history_results_path = history_root / f"{history_id}_{strategy_slug}_results.json"
+    history_trajectory_path = history_root / f"{history_id}_{strategy_slug}_trajectory.json"
     tasks = load_tasks(tasks_root)
 
     if not tasks:
@@ -313,19 +343,21 @@ def main() -> None:
         temp_root = Path(temp_dir)
         for metadata, task_dir in tasks:
             print(f"Running {metadata.id}...")
-            results.append(run_task(metadata, task_dir, temp_root))
+            results.append(run_task(metadata, task_dir, temp_root, strategy=strategy))
 
     print()
-    summary = summarize_results(results, created_at)
+    summary = summarize_results(results, created_at, strategy)
     print_summary(summary)
     print_table(results)
     results_payload = {
         "created_at": created_at,
+        "strategy": strategy,
         "summary": summary,
         "results": [metrics_for_result(result) for result in results],
     }
     trajectory_payload = {
         "created_at": created_at,
+        "strategy": strategy,
         "runs": [report_for_result(result) for result in results],
     }
     runs_root.mkdir(exist_ok=True)
@@ -334,6 +366,14 @@ def main() -> None:
     trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
     latest_results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
     latest_trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
+    latest_strategy_results_path.write_text(
+        json.dumps(results_payload, indent=2),
+        encoding="utf-8",
+    )
+    latest_strategy_trajectory_path.write_text(
+        json.dumps(trajectory_payload, indent=2),
+        encoding="utf-8",
+    )
     history_results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
     history_trajectory_path.write_text(
         json.dumps(trajectory_payload, indent=2),
@@ -343,6 +383,8 @@ def main() -> None:
     print(f"Wrote {trajectory_path}")
     print(f"Wrote {latest_results_path}")
     print(f"Wrote {latest_trajectory_path}")
+    print(f"Wrote {latest_strategy_results_path}")
+    print(f"Wrote {latest_strategy_trajectory_path}")
     print(f"Wrote {history_results_path}")
     print(f"Wrote {history_trajectory_path}")
     wait_for_all_tracers()

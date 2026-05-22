@@ -15,13 +15,24 @@ from eval_harness import load_task, run_task
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a single Automaton benchmark task.")
     parser.add_argument("task_dir", type=Path, help="Path to a benchmark task directory.")
+    parser.add_argument(
+        "--strategy",
+        default="structured",
+        help="Experiment label to attach to the LangSmith trace.",
+    )
     args = parser.parse_args()
 
     task_dir = args.task_dir.resolve()
     metadata = load_task(task_dir)
 
     with tempfile.TemporaryDirectory(prefix="automaton-task-") as temp_dir:
-        result = run_task(metadata, task_dir, Path(temp_dir), run_source="single_task")
+        result = run_task(
+            metadata,
+            task_dir,
+            Path(temp_dir),
+            run_source="single_task",
+            strategy=args.strategy,
+        )
 
     print(json.dumps(result, indent=2))
     wait_for_all_tracers()

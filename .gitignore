@@ -29,6 +29,8 @@ benchmark_results.json
 trajectory_report.json
 benchmark_runs/latest_results.json
 benchmark_runs/latest_trajectory.json
+benchmark_runs/latest_*_results.json
+benchmark_runs/latest_*_trajectory.json
 benchmark_runs/history/
 
 # OS and editor files

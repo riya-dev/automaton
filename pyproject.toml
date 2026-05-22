@@ -15,4 +15,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["agent", "eval_harness", "nodes", "run_task", "state", "tools"]
+py-modules = ["agent", "benchmark_utils", "compare_runs", "eval_harness", "nodes", "run_task", "state", "tools"]
