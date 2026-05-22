@@ -3,6 +3,7 @@
 import os
 import re
 import time
+import logging
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from state import (
@@ -22,6 +23,7 @@ MAX_CONTEXT_FILES = 8
 PLANNER_MODEL = os.getenv("AUTOMATON_PLANNER_MODEL", "gemini-2.5-flash-lite")
 CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash-lite")
 CRITIC_MODEL = os.getenv("AUTOMATON_CRITIC_MODEL", "gemini-2.5-flash-lite")
+LOGGER = logging.getLogger(__name__)
 
 
 def _google_llm(model: str):
@@ -100,7 +102,7 @@ def _parse_pytest_result(command_output: str) -> TestResult:
 def planner(state: AgentState) -> dict[str, object]:
     """Build context and produce a structured implementation plan."""
     started_at = time.perf_counter()
-    print("-> Planner node")
+    LOGGER.debug("Planner node started")
     working_dir = state["working_dir"]
     file_tree = list_dir.invoke({"path": ".", "working_dir": working_dir, "depth": 2})
     code_context = _read_code_context(file_tree, working_dir)
@@ -130,7 +132,7 @@ def planner(state: AgentState) -> dict[str, object]:
 def coder(state: AgentState) -> dict[str, object]:
     """Produce and apply a structured full-file code edit."""
     started_at = time.perf_counter()
-    print("-> Coder node")
+    LOGGER.debug("Coder node started")
     coder_llm = _google_llm(CODER_MODEL).with_structured_output(CodeEdit)
 
     test_result = state.get("test_result")
@@ -186,7 +188,7 @@ def coder(state: AgentState) -> dict[str, object]:
 def executor(state: AgentState) -> dict[str, object]:
     """Run pytest and parse the result."""
     started_at = time.perf_counter()
-    print("-> Executor node")
+    LOGGER.debug("Executor node started")
     if state["status"] == "failed":
         return {
             "next": "critic",
@@ -229,7 +231,7 @@ def executor(state: AgentState) -> dict[str, object]:
 def critic(state: AgentState) -> dict[str, object]:
     """Critique the latest attempt and decide the next route."""
     started_at = time.perf_counter()
-    print("-> Critic node")
+    LOGGER.debug("Critic node started")
     iteration = state.get("iteration", 0) + 1
 
     test_result = state.get("test_result")
@@ -303,7 +305,7 @@ def critic(state: AgentState) -> dict[str, object]:
 def evaluator(state: AgentState) -> dict[str, object]:
     """Produce a deterministic final evaluation for the run."""
     started_at = time.perf_counter()
-    print("-> Evaluator node")
+    LOGGER.debug("Evaluator node started")
     iterations = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 1)
     success = state["status"] == "passed"

@@ -1,8 +1,27 @@
-# automaton
+# Automaton
 
 Automaton is a small LangGraph coding-agent prototype. It plans a fix, edits one
 file, runs tests, critiques the result, optionally replans, and records benchmark
 metrics plus LangSmith traces.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    start([START]) --> planner[planner]
+    planner --> coder[coder]
+    coder --> executor[executor]
+    executor --> critic[critic]
+    critic -->|continue| coder
+    critic -->|replan| planner
+    critic -->|done or give_up| evaluator[evaluator]
+    evaluator --> finish([END])
+```
+
+The planner reads the task directory and produces a structured plan. The coder
+returns one full-file edit, the executor runs pytest inside the locked working
+directory, and the critic decides whether to continue, replan, finish, or give
+up. The evaluator records the final status and trajectory metadata.
 
 ## Setup
 
@@ -14,16 +33,14 @@ source venv/bin/activate
 python -m pip install -e .
 ```
 
-Create `.env`:
+Create `.env` from the example file:
 
 ```bash
-GEMINI_API_KEY=...
-
-LANGSMITH_TRACING=true
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-LANGSMITH_API_KEY=...
-LANGSMITH_PROJECT=Automaton
+cp .env.example .env
 ```
+
+Then fill in `GEMINI_API_KEY`. LangSmith settings are optional, but the defaults
+in `.env.example` are ready for trace capture once `LANGSMITH_API_KEY` is set.
 
 ## Run
 
@@ -85,6 +102,30 @@ Benchmark tasks live in `benchmarks/tasks/task_*`. Each task has:
 
 The harness copies each task to a temp directory before running the agent. A run
 is marked unsuccessful if the agent changes any `test_*.py` file.
+
+## Example Trajectory
+
+This is the normal shape of a successful run:
+
+```text
+input
+  Fix the bug described by benchmarks/tasks/task_001/task.json.
+
+planner
+  Read the task files and identify the implementation file under test.
+
+coder
+  Rewrite the target implementation file with the minimal fix.
+
+executor
+  Run pytest --tb=short in the temporary task copy.
+
+critic
+  Confirm tests passed and return verdict=done.
+
+evaluator
+  Mark success=true, final_status=passed, and record iterations_used.
+```
 
 ## Project Structure
 
