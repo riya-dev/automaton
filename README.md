@@ -74,6 +74,28 @@ Run a local smoke check without calling Gemini:
 python -m py_compile state.py nodes.py agent.py eval_harness.py run_task.py demo/app.py
 ```
 
+## Local Cost Estimates
+
+Automaton keeps LangSmith as the primary trace UI. LangSmith can show provider
+costs once model pricing is configured there.
+
+Local benchmark reports also estimate cost from provider `usage_metadata` on
+Gemini responses. The local estimate is written into trajectory rows and final
+evaluation results as input tokens, output tokens, and `cost_usd`; total tokens
+are computed as input plus output tokens wherever displayed.
+
+Defaults use Gemini 2.5 Flash-Lite standard text rates:
+
+- Input: `$0.10 / 1M` tokens
+- Output: `$0.40 / 1M` tokens
+
+Override those rates when pricing changes:
+
+```bash
+export AUTOMATON_GEMINI_FLASH_LITE_INPUT_PER_1M=0.10
+export AUTOMATON_GEMINI_FLASH_LITE_OUTPUT_PER_1M=0.40
+```
+
 ## Outputs
 
 `eval_harness.py` writes:
@@ -114,9 +136,10 @@ automaton:task_001
 ```
 
 LangSmith should show graph nodes plus nested file tools, Gemini model calls,
-pytest execution, inputs, outputs, and latency. The local
-`trajectory_report.json` remains the canonical benchmark report for final
-success, test integrity, changed tests, and per-run summaries.
+pytest execution, inputs, outputs, latency, and costs when pricing is configured.
+The local `trajectory_report.json` remains the canonical benchmark report for
+final success, test integrity, changed tests, per-run summaries, and estimated
+usage costs from response metadata.
 
 ## Benchmarks
 

@@ -55,6 +55,10 @@ class TrajectoryStep(BaseModel):
     summary: str
     decision: str | None = None
     latency_seconds: float | None = None
+    model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 class EvalResult(BaseModel):
@@ -65,6 +69,9 @@ class EvalResult(BaseModel):
     iterations_used: int
     trajectory_efficiency: float
     summary: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 class AgentState(TypedDict):

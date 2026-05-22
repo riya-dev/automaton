@@ -4,6 +4,7 @@ import os
 import re
 import time
 import logging
+from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from state import (
@@ -24,10 +25,73 @@ PLANNER_MODEL = os.getenv("AUTOMATON_PLANNER_MODEL", "gemini-2.5-flash-lite")
 CODER_MODEL = os.getenv("AUTOMATON_CODER_MODEL", "gemini-2.5-flash-lite")
 CRITIC_MODEL = os.getenv("AUTOMATON_CRITIC_MODEL", "gemini-2.5-flash-lite")
 LOGGER = logging.getLogger(__name__)
+GEMINI_FLASH_LITE_INPUT_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_LITE_INPUT_PER_1M", "0.10")
+)
+GEMINI_FLASH_LITE_OUTPUT_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_LITE_OUTPUT_PER_1M", "0.40")
+)
 
 
 def _google_llm(model: str):
     return ChatGoogleGenerativeAI(model=model, temperature=0.0)
+
+
+def _model_rates(model: str | None) -> tuple[float, float]:
+    if model == "gemini-2.5-flash-lite":
+        return GEMINI_FLASH_LITE_INPUT_PER_1M, GEMINI_FLASH_LITE_OUTPUT_PER_1M
+    if model is not None:
+        LOGGER.warning("No pricing configured for model %r; cost_usd will be 0.0", model)
+    return 0.0, 0.0
+
+
+def _cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
+    input_rate, output_rate = _model_rates(model)
+    return ((input_tokens * input_rate) + (output_tokens * output_rate)) / 1_000_000
+
+
+def _metadata_value(metadata: Any, key: str) -> Any:
+    if isinstance(metadata, dict):
+        return metadata.get(key)
+    return getattr(metadata, key, None)
+
+
+def _usage_tokens(raw_response: Any) -> tuple[int, int]:
+    usage_metadata = getattr(raw_response, "usage_metadata", None)
+    if not usage_metadata:
+        response_metadata = getattr(raw_response, "response_metadata", None) or {}
+        usage_metadata = (
+            response_metadata.get("usage_metadata")
+            or response_metadata.get("token_usage")
+        )
+    if not usage_metadata:
+        return 0, 0
+
+    input_tokens = _metadata_value(usage_metadata, "input_tokens")
+    output_tokens = _metadata_value(usage_metadata, "output_tokens")
+
+    if input_tokens is None:
+        input_tokens = _metadata_value(usage_metadata, "prompt_tokens")
+    if output_tokens is None:
+        output_tokens = _metadata_value(usage_metadata, "completion_tokens")
+
+    try:
+        input_count = int(input_tokens or 0)
+        output_count = int(output_tokens or 0)
+    except (TypeError, ValueError):
+        return 0, 0
+
+    return max(input_count, 0), max(output_count, 0)
+
+
+def _usage_for_response(response: dict[str, Any], model: str) -> dict[str, Any]:
+    input_tokens, output_tokens = _usage_tokens(response.get("raw"))
+    return {
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": _cost_usd(model, input_tokens, output_tokens),
+    }
 
 
 def _step(
@@ -35,6 +99,10 @@ def _step(
     summary: str,
     decision: str | None = None,
     started_at: float | None = None,
+    model: str | None = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> TrajectoryStep:
     latency = None
     if started_at is not None:
@@ -45,6 +113,10 @@ def _step(
         summary=summary,
         decision=decision,
         latency_seconds=latency,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=round(cost_usd, 8),
     )
 
 
@@ -108,9 +180,11 @@ def planner(state: AgentState) -> dict[str, object]:
     code_context = _read_code_context(file_tree, working_dir)
     critique_context = state.get("critique")
 
-    planner_llm = _google_llm(PLANNER_MODEL).with_structured_output(Plan)
+    planner_llm = _google_llm(PLANNER_MODEL).with_structured_output(
+        Plan, include_raw=True
+    )
 
-    plan = planner_llm.invoke(
+    response = planner_llm.invoke(
         (
             "Create a concise implementation plan for this coding task.\n\n"
             f"Task:\n{state['task']}\n\n"
@@ -120,13 +194,19 @@ def planner(state: AgentState) -> dict[str, object]:
         ),
         config={"run_name": "planner:model", "tags": ["planner", "model"]},
     )
+    plan = response["parsed"]
+    if plan is None:
+        raise RuntimeError(f"Planner failed to parse LLM response: {response.get('parsing_error')}")
+    usage = _usage_for_response(response, PLANNER_MODEL)
 
     return {
         "file_tree": file_tree,
         "code_context": code_context,
         "plan": plan,
         "next": "coder",
-        "trajectory": [_step("planner", "created plan", "coder", started_at)],
+        "trajectory": [
+            _step("planner", "created plan", "coder", started_at, **usage)
+        ],
     }
 
 
@@ -134,13 +214,15 @@ def coder(state: AgentState) -> dict[str, object]:
     """Produce and apply a structured full-file code edit."""
     started_at = time.perf_counter()
     LOGGER.debug("Coder node started")
-    coder_llm = _google_llm(CODER_MODEL).with_structured_output(CodeEdit)
+    coder_llm = _google_llm(CODER_MODEL).with_structured_output(
+        CodeEdit, include_raw=True
+    )
 
     test_result = state.get("test_result")
     failure_context = test_result.failure_summary if test_result is not None else "No tests run yet."
     critique_context = state.get("critique")
 
-    code_edit = coder_llm.invoke(
+    response = coder_llm.invoke(
         (
             "Return exactly one full-file edit that addresses the task and failing tests.\n\n"
             "Do not edit test files unless the task explicitly asks you to update tests. "
@@ -154,6 +236,10 @@ def coder(state: AgentState) -> dict[str, object]:
         ),
         config={"run_name": "coder:model", "tags": ["coder", "model"]},
     )
+    code_edit = response["parsed"]
+    if code_edit is None:
+        raise RuntimeError(f"Coder failed to parse LLM response: {response.get('parsing_error')}")
+    usage = _usage_for_response(response, CODER_MODEL)
     write_result = write_file.invoke(
         {
             "path": code_edit.file_path,
@@ -173,6 +259,7 @@ def coder(state: AgentState) -> dict[str, object]:
                     f"failed to write {code_edit.file_path}: {write_result}",
                     "executor",
                     started_at,
+                    **usage,
                 )
             ],
         }
@@ -182,7 +269,13 @@ def coder(state: AgentState) -> dict[str, object]:
         "last_error": None,
         "next": "executor",
         "trajectory": [
-            _step("coder", f"edited {code_edit.file_path}", "executor", started_at)
+            _step(
+                "coder",
+                f"edited {code_edit.file_path}",
+                "executor",
+                started_at,
+                **usage,
+            )
         ],
     }
 
@@ -238,6 +331,12 @@ def critic(state: AgentState) -> dict[str, object]:
 
     test_result = state.get("test_result")
     last_edit = state.get("last_edit")
+    usage = {
+        "model": None,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+    }
 
     if state["status"] == "passed":
         critique = CritiqueResult(
@@ -261,8 +360,10 @@ def critic(state: AgentState) -> dict[str, object]:
             verdict="give_up",
         )
     else:
-        critic_llm = _google_llm(CRITIC_MODEL).with_structured_output(CritiqueResult)
-        critique = critic_llm.invoke(
+        critic_llm = _google_llm(CRITIC_MODEL).with_structured_output(
+            CritiqueResult, include_raw=True
+        )
+        response = critic_llm.invoke(
             (
                 "Critique the latest coding attempt. Decide whether the agent should "
                 "continue coding from the current plan, replan, finish, or give up.\n\n"
@@ -280,6 +381,10 @@ def critic(state: AgentState) -> dict[str, object]:
             ),
             config={"run_name": "critic:model", "tags": ["critic", "model"]},
         )
+        critique = response["parsed"]
+        if critique is None:
+            raise RuntimeError(f"Critic failed to parse LLM response: {response.get('parsing_error')}")
+        usage = _usage_for_response(response, CRITIC_MODEL)
 
     status = state["status"]
     if critique.verdict == "done":
@@ -300,6 +405,7 @@ def critic(state: AgentState) -> dict[str, object]:
                 f"iteration={iteration} summary={critique.summary}",
                 critique.verdict,
                 started_at,
+                **usage,
             )
         ],
     }
@@ -312,6 +418,12 @@ def evaluator(state: AgentState) -> dict[str, object]:
     iterations = state.get("iteration", 0)
     max_iterations = state.get("max_iterations", 1)
     success = state["status"] == "passed"
+    trajectory = state.get("trajectory", [])
+    input_tokens = sum(step.input_tokens for step in trajectory)
+    output_tokens = sum(step.output_tokens for step in trajectory)
+    cost_usd = sum(
+        _cost_usd(step.model, step.input_tokens, step.output_tokens) for step in trajectory
+    )
     eval_result = EvalResult(
         success=success,
         final_status=state["status"],
@@ -322,6 +434,9 @@ def evaluator(state: AgentState) -> dict[str, object]:
             if success
             else f"Run ended with status={state['status']} after {iterations} iterations."
         ),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=round(cost_usd, 8),
     )
 
     return {

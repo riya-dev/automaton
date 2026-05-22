@@ -162,6 +162,9 @@ def run_task(
             "success": bool(getattr(eval_result, "success", False)) and tests_unchanged,
             "status": getattr(eval_result, "final_status", result.get("status")),
             "iterations": getattr(eval_result, "iterations_used", result.get("iteration", 0)),
+            "input_tokens": getattr(eval_result, "input_tokens", 0),
+            "output_tokens": getattr(eval_result, "output_tokens", 0),
+            "cost_usd": getattr(eval_result, "cost_usd", 0.0),
             "duration_seconds": round(duration, 2),
             "critique_verdict": getattr(critique, "verdict", None),
             "tests_unchanged": tests_unchanged,
@@ -179,6 +182,9 @@ def run_task(
             "success": False,
             "status": "error",
             "iterations": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
             "duration_seconds": round(duration, 2),
             "critique_verdict": None,
             "tests_unchanged": False,
@@ -196,6 +202,9 @@ def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[st
     failed = total_tasks - passed
     total_iterations = sum(result["iterations"] for result in results)
     total_duration = sum(result["duration_seconds"] for result in results)
+    total_input_tokens = sum(result["input_tokens"] for result in results)
+    total_output_tokens = sum(result["output_tokens"] for result in results)
+    total_cost_usd = sum(result["cost_usd"] for result in results)
 
     return {
         "created_at": created_at,
@@ -209,6 +218,10 @@ def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[st
         "average_duration_seconds": round(total_duration / total_tasks, 2)
         if total_tasks
         else 0.0,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_cost_usd": round(total_cost_usd, 8),
+        "average_cost_usd": round(total_cost_usd / total_tasks, 8) if total_tasks else 0.0,
     }
 
 
@@ -220,6 +233,9 @@ def metrics_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "success": result["success"],
         "status": result["status"],
         "iterations": result["iterations"],
+        "input_tokens": result["input_tokens"],
+        "output_tokens": result["output_tokens"],
+        "cost_usd": result["cost_usd"],
         "duration_seconds": result["duration_seconds"],
         "critique_verdict": result["critique_verdict"],
         "tests_unchanged": result["tests_unchanged"],
@@ -249,17 +265,23 @@ def print_summary(summary: dict[str, Any]) -> None:
     print(f"- pass rate: {summary['pass_rate']:.1%}")
     print(f"- average iterations: {summary['average_iterations']}")
     print(f"- average duration: {summary['average_duration_seconds']}s")
+    print(f"- total tokens: {summary['total_input_tokens']} in / {summary['total_output_tokens']} out")
+    print(f"- total cost: ${summary['total_cost_usd']:.8f}")
+    print(f"- average cost: ${summary['average_cost_usd']:.8f}")
     print()
 
 
 def print_table(results: list[dict[str, Any]]) -> None:
-    print("| task | category | success | status | verdict | tests | iterations | seconds |")
-    print("| --- | --- | --- | --- | --- | --- | ---: | ---: |")
+    print(
+        "| task | category | success | status | verdict | tests | iterations | "
+        "seconds | cost_usd |"
+    )
+    print("| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |")
     for result in results:
         print(
             "| {task_id} | {category} | {success} | {status} | "
             "{critique_verdict} | {tests_unchanged} | {iterations} | "
-            "{duration_seconds} |".format(**result)
+            "{duration_seconds} | {cost_usd:.8f} |".format(**result)
         )
 
 
