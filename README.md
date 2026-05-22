@@ -62,10 +62,16 @@ Run the full benchmark suite:
 python eval_harness.py
 ```
 
+Run the local Streamlit UI:
+
+```bash
+streamlit run demo/app.py
+```
+
 Run a local smoke check without calling Gemini:
 
 ```bash
-python -m py_compile state.py nodes.py agent.py eval_harness.py run_task.py
+python -m py_compile state.py nodes.py agent.py eval_harness.py run_task.py demo/app.py
 ```
 
 ## Outputs
@@ -136,5 +142,6 @@ state.py                shared state and structured models
 tools.py                file and command tools
 eval_harness.py         full benchmark runner
 run_task.py             single-task runner
+demo/app.py             local Streamlit UI
 benchmarks/tasks/       benchmark fixtures
 ```
