@@ -1,14 +1,45 @@
 # automaton
-Autonomous swe agents
+
+Automaton is a small LangGraph coding-agent prototype. It plans a fix, edits one
+file, runs tests, critiques the result, optionally replans, and records benchmark
+metrics plus LangSmith traces.
+
+## Setup
+
+Create and activate a virtual environment, then install the project:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+python -m pip install -e .
+```
+
+Create `.env`:
+
+```bash
+GEMINI_API_KEY=...
+
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=...
+LANGSMITH_PROJECT=Automaton
+```
 
 ## Run
-Run the graph:
+
+Run the default graph entry point:
 
 ```bash
 python agent.py
 ```
 
-Run the benchmark harness:
+Run one benchmark task on a temporary copy:
+
+```bash
+python run_task.py benchmarks/tasks/task_001
+```
+
+Run the full benchmark suite:
 
 ```bash
 python eval_harness.py
@@ -17,42 +48,52 @@ python eval_harness.py
 Run a local smoke check without calling Gemini:
 
 ```bash
-python -m py_compile state.py nodes.py agent.py eval_harness.py
+python -m py_compile state.py nodes.py agent.py eval_harness.py run_task.py
 ```
 
-## Tracing
+## Outputs
 
-To send LangChain/LangGraph traces to LangSmith, set:
+`eval_harness.py` writes:
 
-```bash
-export LANGSMITH_TRACING=true
-export LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-export LANGSMITH_API_KEY=...
-export LANGSMITH_PROJECT=Automaton
+- `benchmark_results.json`: compact latest metrics
+- `trajectory_report.json`: latest detailed trajectories, critiques, eval results
+- `benchmark_runs/latest_results.json`: latest compact metrics
+- `benchmark_runs/latest_trajectory.json`: latest detailed report
+- `benchmark_runs/history/*`: timestamped local benchmark history
+
+Generated reports are ignored by git.
+
+## LangSmith
+
+With the `.env` values above, LangChain/LangGraph automatically sends traces to
+the `Automaton` LangSmith project. Expected trace shape:
+
+```text
+planner -> coder -> executor -> critic -> evaluator
 ```
 
-## Benchmark Results
+LangSmith should show nested calls for file tools, Gemini model calls, pytest
+execution, token counts, costs, latency, inputs, and final state.
 
-Latest local run:
+## Benchmarks
 
-Summary:
+Benchmark tasks live in `benchmarks/tasks/task_*`. Each task has:
 
-- total tasks: 10
-- passed: 10
-- failed: 0
-- pass rate: 100.0%
-- average iterations: 1.0
-- average duration: 18.57s
+- `task.json`: prompt, category, difficulty
+- implementation files with intentional bugs
+- `test_*.py` files that define expected behavior
 
-| task | category | success | status | verdict | iterations | seconds |
-| --- | --- | --- | --- | --- | ---: | ---: |
-| task_001 | off-by-one | True | passed | done | 1 | 17.33 |
-| task_002 | off-by-one | True | passed | done | 1 | 14.34 |
-| task_003 | missing import | True | passed | done | 1 | 4.96 |
-| task_004 | wrong return type | True | passed | done | 1 | 17.86 |
-| task_005 | logic error | True | passed | done | 1 | 50.53 |
-| task_006 | missing function | True | passed | done | 1 | 44.32 |
-| task_007 | bad default argument | True | passed | done | 1 | 10.24 |
-| task_008 | string normalization bug | True | passed | done | 1 | 8.74 |
-| task_009 | date edge case | True | passed | done | 1 | 10.69 |
-| task_010 | exception handling bug | True | passed | done | 1 | 6.71 |
+The harness copies each task to a temp directory before running the agent. A run
+is marked unsuccessful if the agent changes any `test_*.py` file.
+
+## Project Structure
+
+```text
+agent.py                LangGraph wiring and routing
+nodes.py                planner, coder, executor, critic, evaluator
+state.py                shared state and structured models
+tools.py                file and command tools
+eval_harness.py         full benchmark runner
+run_task.py             single-task runner
+benchmarks/tasks/       benchmark fixtures
+```

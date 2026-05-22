@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import tempfile
 import time
@@ -76,6 +77,22 @@ def load_tasks(tasks_root: Path) -> list[tuple[TaskMetadata, Path]]:
     return tasks
 
 
+def load_task(task_dir: Path) -> TaskMetadata:
+    metadata_path = task_dir / "task.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Missing task metadata: {metadata_path}")
+
+    return TaskMetadata.model_validate_json(metadata_path.read_text(encoding="utf-8"))
+
+
+def test_file_hashes(task_dir: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for path in sorted(task_dir.glob("test_*.py")):
+        relative_path = path.relative_to(task_dir).as_posix()
+        hashes[relative_path] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashes
+
+
 def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[str, Any]:
     work_dir = temp_root / metadata.id
     shutil.copytree(
@@ -83,6 +100,7 @@ def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[
         work_dir,
         ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
     )
+    initial_test_hashes = test_file_hashes(work_dir)
 
     started_at = time.perf_counter()
     try:
@@ -90,16 +108,29 @@ def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[
         duration = time.perf_counter() - started_at
         eval_result = result.get("eval_result")
         critique = result.get("critique")
+        final_test_hashes = test_file_hashes(work_dir)
+        changed_or_deleted_tests = [
+            path
+            for path, initial_hash in initial_test_hashes.items()
+            if final_test_hashes.get(path) != initial_hash
+        ]
+        new_tests = [
+            path for path in final_test_hashes if path not in initial_test_hashes
+        ]
+        changed_tests = sorted(changed_or_deleted_tests + new_tests)
+        tests_unchanged = not changed_tests
 
         return {
             "task_id": metadata.id,
             "category": metadata.category,
             "difficulty": metadata.difficulty,
-            "success": bool(getattr(eval_result, "success", False)),
+            "success": bool(getattr(eval_result, "success", False)) and tests_unchanged,
             "status": getattr(eval_result, "final_status", result.get("status")),
             "iterations": getattr(eval_result, "iterations_used", result.get("iteration", 0)),
             "duration_seconds": round(duration, 2),
             "critique_verdict": getattr(critique, "verdict", None),
+            "tests_unchanged": tests_unchanged,
+            "changed_tests": changed_tests,
             "trajectory": _jsonable(result.get("trajectory", [])),
             "critique": _jsonable(critique),
             "eval_result": _jsonable(eval_result),
@@ -115,6 +146,8 @@ def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[
             "iterations": 0,
             "duration_seconds": round(duration, 2),
             "critique_verdict": None,
+            "tests_unchanged": False,
+            "changed_tests": [],
             "error": str(error),
             "trajectory": [],
             "critique": None,
@@ -154,6 +187,8 @@ def metrics_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "iterations": result["iterations"],
         "duration_seconds": result["duration_seconds"],
         "critique_verdict": result["critique_verdict"],
+        "tests_unchanged": result["tests_unchanged"],
+        "changed_tests": result["changed_tests"],
     }
 
 
@@ -165,6 +200,8 @@ def report_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "trajectory": result["trajectory"],
         "critique": result["critique"],
         "eval_result": result["eval_result"],
+        "tests_unchanged": result["tests_unchanged"],
+        "changed_tests": result["changed_tests"],
         **({"error": result["error"]} if "error" in result else {}),
     }
 
@@ -181,12 +218,13 @@ def print_summary(summary: dict[str, Any]) -> None:
 
 
 def print_table(results: list[dict[str, Any]]) -> None:
-    print("| task | category | success | status | verdict | iterations | seconds |")
-    print("| --- | --- | --- | --- | --- | ---: | ---: |")
+    print("| task | category | success | status | verdict | tests | iterations | seconds |")
+    print("| --- | --- | --- | --- | --- | --- | ---: | ---: |")
     for result in results:
         print(
             "| {task_id} | {category} | {success} | {status} | "
-            "{critique_verdict} | {iterations} | {duration_seconds} |".format(**result)
+            "{critique_verdict} | {tests_unchanged} | {iterations} | "
+            "{duration_seconds} |".format(**result)
         )
 
 
@@ -196,6 +234,13 @@ def main() -> None:
     results_path = root / "benchmark_results.json"
     trajectory_path = root / "trajectory_report.json"
     created_at = datetime.now(UTC).isoformat()
+    history_id = created_at.replace(":", "-")
+    runs_root = root / "benchmark_runs"
+    latest_results_path = runs_root / "latest_results.json"
+    latest_trajectory_path = runs_root / "latest_trajectory.json"
+    history_root = runs_root / "history"
+    history_results_path = history_root / f"{history_id}_results.json"
+    history_trajectory_path = history_root / f"{history_id}_trajectory.json"
     tasks = load_tasks(tasks_root)
 
     if not tasks:
@@ -221,10 +266,23 @@ def main() -> None:
         "created_at": created_at,
         "runs": [report_for_result(result) for result in results],
     }
+    runs_root.mkdir(exist_ok=True)
+    history_root.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
     trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
+    latest_results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
+    latest_trajectory_path.write_text(json.dumps(trajectory_payload, indent=2), encoding="utf-8")
+    history_results_path.write_text(json.dumps(results_payload, indent=2), encoding="utf-8")
+    history_trajectory_path.write_text(
+        json.dumps(trajectory_payload, indent=2),
+        encoding="utf-8",
+    )
     print(f"\nWrote {results_path}")
     print(f"Wrote {trajectory_path}")
+    print(f"Wrote {latest_results_path}")
+    print(f"Wrote {latest_trajectory_path}")
+    print(f"Wrote {history_results_path}")
+    print(f"Wrote {history_trajectory_path}")
     wait_for_all_tracers()
 
 

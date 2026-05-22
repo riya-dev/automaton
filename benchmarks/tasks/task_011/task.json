@@ -1,0 +1,6 @@
+{
+  "id": "task_011",
+  "prompt": "Fix the checkout math helpers so discounts reduce prices correctly and tax is added correctly. Preserve the tests.",
+  "category": "multi-file logic error",
+  "difficulty": "medium"
+}

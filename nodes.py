@@ -140,6 +140,9 @@ def coder(state: AgentState) -> dict[str, object]:
     code_edit = coder_llm.invoke(
         (
             "Return exactly one full-file edit that addresses the task and failing tests.\n\n"
+            "Do not edit test files unless the task explicitly asks you to update tests. "
+            "For benchmark tasks, preserve all test_*.py files and fix implementation "
+            "files instead.\n\n"
             f"Task:\n{state['task']}\n\n"
             f"Plan:\n{state['plan']}\n\n"
             f"Critique:\n{critique_context}\n\n"
