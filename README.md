@@ -89,14 +89,34 @@ Generated reports are ignored by git.
 ## LangSmith
 
 With the `.env` values above, LangChain/LangGraph automatically sends traces to
-the `Automaton` LangSmith project. Expected trace shape:
+the `Automaton` LangSmith project. Each benchmark task is invoked with a named
+top-level run, tags, and task metadata:
+
+- Run name: `automaton:{task_id}`
+- Tags: `automaton`, `benchmark`, run source, category, difficulty
+- Metadata: task id, category, difficulty, source directory, working directory,
+  max iterations, run source
+
+Expected trace shape:
 
 ```text
-planner -> coder -> executor -> critic -> evaluator
+automaton:task_001
+  planner
+    planner:model
+  coder
+    coder:model
+    write_file
+  executor
+    run_command
+  critic
+    critic:model, when tests are still failing
+  evaluator
 ```
 
-LangSmith should show nested calls for file tools, Gemini model calls, pytest
-execution, token counts, costs, latency, inputs, and final state.
+LangSmith should show graph nodes plus nested file tools, Gemini model calls,
+pytest execution, inputs, outputs, and latency. The local
+`trajectory_report.json` remains the canonical benchmark report for final
+success, test integrity, changed tests, and per-run summaries.
 
 ## Benchmarks
 

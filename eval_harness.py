@@ -93,7 +93,39 @@ def test_file_hashes(task_dir: Path) -> dict[str, str]:
     return hashes
 
 
-def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[str, Any]:
+def _trace_config(
+    metadata: TaskMetadata,
+    source_dir: Path,
+    work_dir: Path,
+    run_source: str,
+) -> dict[str, Any]:
+    return {
+        "run_name": f"automaton:{metadata.id}",
+        "tags": [
+            "automaton",
+            "benchmark",
+            run_source,
+            metadata.category,
+            metadata.difficulty,
+        ],
+        "metadata": {
+            "task_id": metadata.id,
+            "category": metadata.category,
+            "difficulty": metadata.difficulty,
+            "source_dir": str(source_dir),
+            "working_dir": str(work_dir),
+            "max_iterations": 6,
+            "run_source": run_source,
+        },
+    }
+
+
+def run_task(
+    metadata: TaskMetadata,
+    source_dir: Path,
+    temp_root: Path,
+    run_source: str = "eval_harness",
+) -> dict[str, Any]:
     work_dir = temp_root / metadata.id
     shutil.copytree(
         source_dir,
@@ -104,7 +136,10 @@ def run_task(metadata: TaskMetadata, source_dir: Path, temp_root: Path) -> dict[
 
     started_at = time.perf_counter()
     try:
-        result = graph.invoke(_initial_state(metadata.prompt, work_dir))
+        result = graph.invoke(
+            _initial_state(metadata.prompt, work_dir),
+            config=_trace_config(metadata, source_dir, work_dir, run_source),
+        )
         duration = time.perf_counter() - started_at
         eval_result = result.get("eval_result")
         critique = result.get("critique")

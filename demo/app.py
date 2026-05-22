@@ -126,7 +126,12 @@ def main() -> None:
     if run_selected:
         with st.spinner(f"Running {metadata.id}"):
             with tempfile.TemporaryDirectory(prefix="automaton-ui-") as temp_dir:
-                st.session_state.last_result = run_task(metadata, task_dir, Path(temp_dir))
+                st.session_state.last_result = run_task(
+                    metadata,
+                    task_dir,
+                    Path(temp_dir),
+                    run_source="streamlit",
+                )
 
     if st.session_state.last_result is None:
         st.info("Select a benchmark task and run it.")

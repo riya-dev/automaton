@@ -117,7 +117,8 @@ def planner(state: AgentState) -> dict[str, object]:
             f"Previous critique, if any:\n{critique_context}\n\n"
             f"File tree:\n{file_tree}\n\n"
             f"Code context:\n{code_context}"
-        )
+        ),
+        config={"run_name": "planner:model", "tags": ["planner", "model"]},
     )
 
     return {
@@ -150,7 +151,8 @@ def coder(state: AgentState) -> dict[str, object]:
             f"Critique:\n{critique_context}\n\n"
             f"Code context:\n{state['code_context']}\n\n"
             f"Latest test failure:\n{failure_context}"
-        )
+        ),
+        config={"run_name": "coder:model", "tags": ["coder", "model"]},
     )
     write_result = write_file.invoke(
         {
@@ -275,7 +277,8 @@ def critic(state: AgentState) -> dict[str, object]:
                 f"Last edit:\n{last_edit}\n\n"
                 f"Test result:\n{test_result}\n\n"
                 f"Failure summary:\n{state.get('last_error')}"
-            )
+            ),
+            config={"run_name": "critic:model", "tags": ["critic", "model"]},
         )
 
     status = state["status"]

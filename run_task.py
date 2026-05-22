@@ -21,7 +21,7 @@ def main() -> None:
     metadata = load_task(task_dir)
 
     with tempfile.TemporaryDirectory(prefix="automaton-task-") as temp_dir:
-        result = run_task(metadata, task_dir, Path(temp_dir))
+        result = run_task(metadata, task_dir, Path(temp_dir), run_source="single_task")
 
     print(json.dumps(result, indent=2))
     wait_for_all_tracers()
