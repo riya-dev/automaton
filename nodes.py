@@ -104,7 +104,14 @@ def _usage_tokens(raw_response: Any) -> tuple[int, int, int]:
         (output_details.get("reasoning") if isinstance(output_details, dict)
          else getattr(output_details, "reasoning", None)) or 0
     )
-    output_count = max(output_count - thinking_count, 0)
+    if thinking_count > output_count:
+        LOGGER.warning(
+            "thinking_count (%d) > output_count (%d); clamping to output_count",
+            thinking_count,
+            output_count,
+        )
+        thinking_count = output_count
+    output_count -= thinking_count
 
     return max(input_count, 0), output_count, thinking_count
 
@@ -363,6 +370,7 @@ def critic(state: AgentState) -> dict[str, object]:
         "model": None,
         "input_tokens": 0,
         "output_tokens": 0,
+        "thinking_tokens": 0,
         "cost_usd": 0.0,
     }
 
