@@ -164,6 +164,7 @@ def run_task(
             "iterations": getattr(eval_result, "iterations_used", result.get("iteration", 0)),
             "input_tokens": getattr(eval_result, "input_tokens", 0),
             "output_tokens": getattr(eval_result, "output_tokens", 0),
+            "thinking_tokens": getattr(eval_result, "thinking_tokens", 0),
             "cost_usd": getattr(eval_result, "cost_usd", 0.0),
             "duration_seconds": round(duration, 2),
             "critique_verdict": getattr(critique, "verdict", None),
@@ -184,6 +185,7 @@ def run_task(
             "iterations": 0,
             "input_tokens": 0,
             "output_tokens": 0,
+            "thinking_tokens": 0,
             "cost_usd": 0.0,
             "duration_seconds": round(duration, 2),
             "critique_verdict": None,
@@ -204,6 +206,7 @@ def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[st
     total_duration = sum(result["duration_seconds"] for result in results)
     total_input_tokens = sum(result["input_tokens"] for result in results)
     total_output_tokens = sum(result["output_tokens"] for result in results)
+    total_thinking_tokens = sum(result["thinking_tokens"] for result in results)
     total_cost_usd = sum(result["cost_usd"] for result in results)
 
     return {
@@ -220,6 +223,7 @@ def summarize_results(results: list[dict[str, Any]], created_at: str) -> dict[st
         else 0.0,
         "total_input_tokens": total_input_tokens,
         "total_output_tokens": total_output_tokens,
+        "total_thinking_tokens": total_thinking_tokens,
         "total_cost_usd": round(total_cost_usd, 8),
         "average_cost_usd": round(total_cost_usd / total_tasks, 8) if total_tasks else 0.0,
     }
@@ -235,6 +239,7 @@ def metrics_for_result(result: dict[str, Any]) -> dict[str, Any]:
         "iterations": result["iterations"],
         "input_tokens": result["input_tokens"],
         "output_tokens": result["output_tokens"],
+        "thinking_tokens": result["thinking_tokens"],
         "cost_usd": result["cost_usd"],
         "duration_seconds": result["duration_seconds"],
         "critique_verdict": result["critique_verdict"],
@@ -265,7 +270,7 @@ def print_summary(summary: dict[str, Any]) -> None:
     print(f"- pass rate: {summary['pass_rate']:.1%}")
     print(f"- average iterations: {summary['average_iterations']}")
     print(f"- average duration: {summary['average_duration_seconds']}s")
-    print(f"- total tokens: {summary['total_input_tokens']} in / {summary['total_output_tokens']} out")
+    print(f"- total tokens: {summary['total_input_tokens']} in / {summary['total_output_tokens']} out / {summary['total_thinking_tokens']} thinking")
     print(f"- total cost: ${summary['total_cost_usd']:.8f}")
     print(f"- average cost: ${summary['average_cost_usd']:.8f}")
     print()

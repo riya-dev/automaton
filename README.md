@@ -79,21 +79,28 @@ python -m py_compile state.py nodes.py agent.py eval_harness.py run_task.py demo
 Automaton keeps LangSmith as the primary trace UI. LangSmith can show provider
 costs once model pricing is configured there.
 
-Local benchmark reports also estimate cost from provider `usage_metadata` on
-Gemini responses. The local estimate is written into trajectory rows and final
-evaluation results as input tokens, output tokens, and `cost_usd`; total tokens
-are computed as input plus output tokens wherever displayed.
+Local benchmark reports estimate cost from provider `usage_metadata` on Gemini
+responses. Each trajectory row and the final evaluation result include
+`input_tokens`, `output_tokens`, `thinking_tokens`, and `cost_usd`. Total
+tokens displayed are the sum of all three.
 
-Defaults use Gemini 2.5 Flash-Lite standard text rates:
+Gemini 2.5 Flash-Lite folds thinking tokens into `output_tokens` in the raw
+response; Automaton separates them via `output_token_details["reasoning"]` so
+they can be priced at the correct (lower) thinking rate rather than the output
+rate.
+
+Defaults use Gemini 2.5 Flash-Lite standard rates:
 
 - Input: `$0.10 / 1M` tokens
 - Output: `$0.40 / 1M` tokens
+- Thinking: `$0.10 / 1M` tokens
 
-Override those rates when pricing changes:
+Override any rate when pricing changes:
 
 ```bash
 export AUTOMATON_GEMINI_FLASH_LITE_INPUT_PER_1M=0.10
 export AUTOMATON_GEMINI_FLASH_LITE_OUTPUT_PER_1M=0.40
+export AUTOMATON_GEMINI_FLASH_LITE_THINKING_PER_1M=0.10
 ```
 
 ## Outputs

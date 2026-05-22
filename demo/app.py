@@ -43,6 +43,7 @@ def _trajectory_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
                 "model": step.get("model"),
                 "input_tokens": step.get("input_tokens", 0),
                 "output_tokens": step.get("output_tokens", 0),
+                "thinking_tokens": step.get("thinking_tokens", 0),
                 "cost_usd": step.get("cost_usd", 0.0),
             }
         )
@@ -55,7 +56,8 @@ def _show_result(result: dict[str, Any]) -> None:
     eval_result = result.get("eval_result") or {}
     input_tokens = result.get("input_tokens", 0)
     output_tokens = result.get("output_tokens", 0)
-    total_tokens = input_tokens + output_tokens
+    thinking_tokens = result.get("thinking_tokens", 0)
+    total_tokens = input_tokens + output_tokens + thinking_tokens
     cost_usd = result.get("cost_usd", 0.0)
 
     if success:

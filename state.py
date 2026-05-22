@@ -58,6 +58,7 @@ class TrajectoryStep(BaseModel):
     model: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    thinking_tokens: int = 0
     cost_usd: float = 0.0
 
 
@@ -71,6 +72,7 @@ class EvalResult(BaseModel):
     summary: str
     input_tokens: int = 0
     output_tokens: int = 0
+    thinking_tokens: int = 0
     cost_usd: float = 0.0
 
 

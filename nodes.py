@@ -31,23 +31,39 @@ GEMINI_FLASH_LITE_INPUT_PER_1M = float(
 GEMINI_FLASH_LITE_OUTPUT_PER_1M = float(
     os.getenv("AUTOMATON_GEMINI_FLASH_LITE_OUTPUT_PER_1M", "0.40")
 )
+GEMINI_FLASH_LITE_THINKING_PER_1M = float(
+    os.getenv("AUTOMATON_GEMINI_FLASH_LITE_THINKING_PER_1M", "0.10")
+)
 
 
 def _google_llm(model: str):
     return ChatGoogleGenerativeAI(model=model, temperature=0.0)
 
 
-def _model_rates(model: str | None) -> tuple[float, float]:
+def _model_rates(model: str | None) -> tuple[float, float, float]:
     if model == "gemini-2.5-flash-lite":
-        return GEMINI_FLASH_LITE_INPUT_PER_1M, GEMINI_FLASH_LITE_OUTPUT_PER_1M
+        return (
+            GEMINI_FLASH_LITE_INPUT_PER_1M,
+            GEMINI_FLASH_LITE_OUTPUT_PER_1M,
+            GEMINI_FLASH_LITE_THINKING_PER_1M,
+        )
     if model is not None:
         LOGGER.warning("No pricing configured for model %r; cost_usd will be 0.0", model)
-    return 0.0, 0.0
+    return 0.0, 0.0, 0.0
 
 
-def _cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
-    input_rate, output_rate = _model_rates(model)
-    return ((input_tokens * input_rate) + (output_tokens * output_rate)) / 1_000_000
+def _cost_usd(
+    model: str | None,
+    input_tokens: int,
+    output_tokens: int,
+    thinking_tokens: int = 0,
+) -> float:
+    input_rate, output_rate, thinking_rate = _model_rates(model)
+    return (
+        (input_tokens * input_rate)
+        + (output_tokens * output_rate)
+        + (thinking_tokens * thinking_rate)
+    ) / 1_000_000
 
 
 def _metadata_value(metadata: Any, key: str) -> Any:
@@ -56,7 +72,7 @@ def _metadata_value(metadata: Any, key: str) -> Any:
     return getattr(metadata, key, None)
 
 
-def _usage_tokens(raw_response: Any) -> tuple[int, int]:
+def _usage_tokens(raw_response: Any) -> tuple[int, int, int]:
     usage_metadata = getattr(raw_response, "usage_metadata", None)
     if not usage_metadata:
         response_metadata = getattr(raw_response, "response_metadata", None) or {}
@@ -65,7 +81,7 @@ def _usage_tokens(raw_response: Any) -> tuple[int, int]:
             or response_metadata.get("token_usage")
         )
     if not usage_metadata:
-        return 0, 0
+        return 0, 0, 0
 
     input_tokens = _metadata_value(usage_metadata, "input_tokens")
     output_tokens = _metadata_value(usage_metadata, "output_tokens")
@@ -79,18 +95,28 @@ def _usage_tokens(raw_response: Any) -> tuple[int, int]:
         input_count = int(input_tokens or 0)
         output_count = int(output_tokens or 0)
     except (TypeError, ValueError):
-        return 0, 0
+        return 0, 0, 0
 
-    return max(input_count, 0), max(output_count, 0)
+    # langchain-google-genai folds thinking tokens into output_tokens; separate them out
+    # via output_token_details["reasoning"] so they can be priced correctly
+    output_details = _metadata_value(usage_metadata, "output_token_details") or {}
+    thinking_count = int(
+        (output_details.get("reasoning") if isinstance(output_details, dict)
+         else getattr(output_details, "reasoning", None)) or 0
+    )
+    output_count = max(output_count - thinking_count, 0)
+
+    return max(input_count, 0), output_count, thinking_count
 
 
 def _usage_for_response(response: dict[str, Any], model: str) -> dict[str, Any]:
-    input_tokens, output_tokens = _usage_tokens(response.get("raw"))
+    input_tokens, output_tokens, thinking_tokens = _usage_tokens(response.get("raw"))
     return {
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "cost_usd": _cost_usd(model, input_tokens, output_tokens),
+        "thinking_tokens": thinking_tokens,
+        "cost_usd": _cost_usd(model, input_tokens, output_tokens, thinking_tokens),
     }
 
 
@@ -102,6 +128,7 @@ def _step(
     model: str | None = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    thinking_tokens: int = 0,
     cost_usd: float = 0.0,
 ) -> TrajectoryStep:
     latency = None
@@ -116,6 +143,7 @@ def _step(
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        thinking_tokens=thinking_tokens,
         cost_usd=round(cost_usd, 8),
     )
 
@@ -421,8 +449,10 @@ def evaluator(state: AgentState) -> dict[str, object]:
     trajectory = state.get("trajectory", [])
     input_tokens = sum(step.input_tokens for step in trajectory)
     output_tokens = sum(step.output_tokens for step in trajectory)
+    thinking_tokens = sum(step.thinking_tokens for step in trajectory)
     cost_usd = sum(
-        _cost_usd(step.model, step.input_tokens, step.output_tokens) for step in trajectory
+        _cost_usd(step.model, step.input_tokens, step.output_tokens, step.thinking_tokens)
+        for step in trajectory
     )
     eval_result = EvalResult(
         success=success,
@@ -436,6 +466,7 @@ def evaluator(state: AgentState) -> dict[str, object]:
         ),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        thinking_tokens=thinking_tokens,
         cost_usd=round(cost_usd, 8),
     )
 
